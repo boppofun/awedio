@@ -9,14 +9,15 @@ supported by [Symphonia](https://crates.io/crates/symphonia).
 
 Play a single sound file:
 
-```rust ignore
+```rust
 let (mut manager, backend) = awedio::start()?;
-manager.play(awedio::sounds::open_file("test.wav")?);
+manager.play(awedio::sounds::open_file("test_files/stereo-test.mp3")?);
+# Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
 Play a sound with adjustable volume controllable after playback has started:
 
-```rust ignore
+```rust
 use awedio::Sound;
 let (mut manager, backend) = awedio::start()?;
 let (sound, mut controller) = awedio::sounds::SineWav::new(400.0)
@@ -28,6 +29,7 @@ std::thread::sleep(std::time::Duration::from_millis(100));
 controller.set_volume(0.5);
 std::thread::sleep(std::time::Duration::from_millis(100));
 controller.set_paused(true);
+# Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
 ## Design Goals
