@@ -59,8 +59,8 @@ controller.set_paused(true);
 - [esp32][awedio_esp32] - For esp32 microcontrollers using
   esp-idf. Implemented in its [own crate][awedio_esp32].
 
-Backends are implemented by pulling samples from a [BackendSource] such as
-the [Renderer].
+Backends are implemented by pulling samples from a
+[BackendSource][crate::manager::BackendSource] such as the [Renderer].
 
 ## Cargo Features
 

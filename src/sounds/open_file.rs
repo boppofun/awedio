@@ -4,8 +4,8 @@ use std::{fs::File, io::BufReader};
 /// Create a Sound that reads from a file with the correct decoder based on the
 /// file extension.
 ///
-/// If the file type is not able to be decoded than an [ErrorKind::Unsupported]
-/// is returned.
+/// If the file type is not able to be decoded than an
+/// [std::io::ErrorKind::Unsupported] is returned.
 ///
 /// Uses a BufReader internally with the default capacity.
 ///
