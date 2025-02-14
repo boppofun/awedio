@@ -15,7 +15,8 @@ use super::Wrapper;
 /// Since new sounds can be added after playing has started, if the inner sound
 /// returns Finished it will be converted to Paused by Controllable. Only after
 /// the controller has dropped and all sounds have played will Finished be
-/// returned;
+/// returned. If you want the Controllable to Finish immediately when the inner
+/// Sound has completed, use [finish_with_inner][Controllable].
 pub struct Controllable<S: Sound> {
     inner: S,
     command_receiver: mpsc::Receiver<Command<S>>,
@@ -37,6 +38,12 @@ where
         let controller = Controller { command_sender };
 
         (controllable, controller)
+    }
+
+    /// Instead of pausing while waiting for the Controller to drop,
+    /// instead finish immediately when the inner sound has finished.
+    pub fn finish_with_inner(&mut self) {
+        self.finished = true;
     }
 }
 
