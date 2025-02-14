@@ -1,6 +1,6 @@
 use crate::Sound;
 
-use super::{SetPaused, SetVolume};
+use super::{SetPaused, SetStopped, SetVolume};
 
 /// A sound that can have the playback speed adjusted.
 ///
@@ -108,6 +108,15 @@ where
 {
     fn set_paused(&mut self, paused: bool) {
         self.inner.set_paused(paused)
+    }
+}
+
+impl<S> SetStopped for AdjustableSpeed<S>
+where
+    S: Sound + SetStopped,
+{
+    fn set_stopped(&mut self) {
+        self.inner.set_stopped()
     }
 }
 

@@ -1,6 +1,6 @@
 use crate::Sound;
 
-use super::{SetPaused, SetSpeed};
+use super::{SetPaused, SetSpeed, SetStopped};
 
 /// A sound that can have the loudness adjusted.
 pub trait SetVolume {
@@ -111,6 +111,15 @@ where
 {
     fn set_paused(&mut self, paused: bool) {
         self.inner.set_paused(paused)
+    }
+}
+
+impl<S> SetStopped for AdjustableVolume<S>
+where
+    S: Sound + SetStopped,
+{
+    fn set_stopped(&mut self) {
+        self.inner.set_stopped()
     }
 }
 

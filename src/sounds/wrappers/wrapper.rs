@@ -1,6 +1,6 @@
 use crate::Sound;
 
-use super::{AddSound, ClearSounds, SetPaused, SetSpeed, SetVolume};
+use super::{AddSound, ClearSounds, SetPaused, SetSpeed, SetStopped, SetVolume};
 
 /// Super trait that implements all traits that a wrapper Sound should
 /// transparently pass through if implemented by the inner sound. If you have
@@ -28,6 +28,16 @@ where
 {
     fn set_paused(&mut self, paused: bool) {
         self.inner_mut().set_paused(paused)
+    }
+}
+
+impl<S> SetStopped for S
+where
+    S: Wrapper,
+    <S as Wrapper>::Inner: SetStopped,
+{
+    fn set_stopped(&mut self) {
+        self.inner_mut().set_stopped()
     }
 }
 

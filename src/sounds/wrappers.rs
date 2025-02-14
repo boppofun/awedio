@@ -15,6 +15,7 @@ mod controllable;
 mod finish_after;
 mod pausable;
 mod sample_rate_converter;
+mod stoppable;
 mod wrapper;
 
 pub use adjustable_speed::AdjustableSpeed;
@@ -30,6 +31,8 @@ pub use finish_after::FinishAfter;
 pub use pausable::Pausable;
 pub use pausable::SetPaused;
 pub use sample_rate_converter::SampleRateConverter;
+pub use stoppable::SetStopped;
+pub use stoppable::Stoppable;
 pub use wrapper::Wrapper;
 
 /// A Sound which contains other sounds that can be added to it.

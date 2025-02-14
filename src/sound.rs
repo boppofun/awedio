@@ -7,7 +7,7 @@ use crate::{
     sounds::{
         wrappers::{
             AdjustableSpeed, AdjustableVolume, Controllable, Controller, FinishAfter, Pausable,
-            SetPaused,
+            SetPaused, Stoppable,
         },
         MemorySound,
     },
@@ -207,6 +207,15 @@ pub trait Sound: Send {
         let mut to_return = Pausable::new(self);
         to_return.set_paused(true);
         to_return
+    }
+
+    /// Allow for the sound to be stoppable with `set_stopped`.
+    /// A stopped sound returns `Finished`.
+    fn stoppable(self) -> Stoppable<Self>
+    where
+        Self: Sized,
+    {
+        Stoppable::new(self)
     }
 
     /// Play the first `duration` of the sound, then finish even if samples

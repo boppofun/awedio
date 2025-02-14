@@ -3,6 +3,7 @@ use crate::sounds::wrappers::SetVolume;
 use crate::Sound;
 use std::sync::mpsc;
 
+use super::stoppable::SetStopped;
 use super::AddSound;
 use super::ClearSounds;
 use super::SetSpeed;
@@ -170,6 +171,16 @@ where
     /// Pause or unpause the controllable sound.
     pub fn set_paused(&mut self, paused: bool) {
         self.send_command(Box::new(move |s: &mut S| s.set_paused(paused)));
+    }
+}
+
+impl<S> Controller<S>
+where
+    S: Sound + SetStopped,
+{
+    /// Stop the controllable sound (i.e. it will return Finished).
+    pub fn set_stopped(&mut self) {
+        self.send_command(Box::new(move |s: &mut S| s.set_stopped()));
     }
 }
 
