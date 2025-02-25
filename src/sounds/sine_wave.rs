@@ -1,24 +1,24 @@
 use std::f32::consts::TAU;
 
 /// A constant pitch sound of infinite length.
-pub struct SineWav {
+pub struct SineWave {
     freq: f32,
     sample_rate: u32,
     sample_num: u32,
     reset_num: u32,
 }
 
-impl SineWav {
+impl SineWave {
     /// A constant pitch sound with a default sample rate of 44,100.
-    pub fn new(freq: f32) -> SineWav {
+    pub fn new(freq: f32) -> SineWave {
         Self::with_sample_rate(freq, 44100)
     }
 
     /// A constant pitch sound with `sample_rate`.
-    pub fn with_sample_rate(freq: f32, sample_rate: u32) -> SineWav {
+    pub fn with_sample_rate(freq: f32, sample_rate: u32) -> SineWave {
         let reset_num = find_reset_num(freq, sample_rate);
 
-        SineWav {
+        SineWave {
             freq,
             sample_rate,
             sample_num: 0,
@@ -51,7 +51,7 @@ fn find_reset_num(freq: f32, sample_rate: u32) -> u32 {
     best_reset_num - 1
 }
 
-impl crate::Sound for SineWav {
+impl crate::Sound for SineWave {
     fn channel_count(&self) -> u16 {
         1
     }
@@ -75,5 +75,5 @@ impl crate::Sound for SineWav {
 }
 
 #[cfg(test)]
-#[path = "./tests/sine_wav.rs"]
+#[path = "./tests/sine_wave.rs"]
 mod tests;

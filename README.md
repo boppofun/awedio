@@ -20,7 +20,7 @@ Play a sound with adjustable volume controllable after playback has started:
 ```rust
 use awedio::Sound;
 let (mut manager, backend) = awedio::start()?;
-let (sound, mut controller) = awedio::sounds::SineWav::new(400.0)
+let (sound, mut controller) = awedio::sounds::SineWave::new(400.0)
     .with_adjustable_volume_of(0.25)
     .pausable()
     .controllable();

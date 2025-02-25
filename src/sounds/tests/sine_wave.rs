@@ -4,7 +4,7 @@ use super::*;
 
 #[test]
 fn high_freq_wav() {
-    let mut wav = SineWav::with_sample_rate(12000.0, 48000);
+    let mut wav = SineWave::with_sample_rate(12000.0, 48000);
     assert_eq!(wav.sample_rate(), 48000);
     assert_eq!(wav.channel_count(), 1);
     assert_eq!(wav.next_sample().unwrap(), NextSample::Sample(i16::MAX));
@@ -17,7 +17,7 @@ fn high_freq_wav() {
 
 #[test]
 fn one_khz_wav() {
-    let mut wav = SineWav::with_sample_rate(1000.0, 44100);
+    let mut wav = SineWave::with_sample_rate(1000.0, 44100);
     assert_eq!(wav.sample_rate(), 44100);
     assert_eq!(wav.channel_count(), 1);
     assert_eq!(wav.next_sample().unwrap(), NextSample::Sample(4652)); // 1
