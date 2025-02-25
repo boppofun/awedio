@@ -1,4 +1,4 @@
-use std::f32::consts::PI;
+use std::f32::consts::TAU;
 
 /// A constant pitch sound of infinite length.
 pub struct SineWav {
@@ -16,12 +16,7 @@ impl SineWav {
 
     /// A constant pitch sound with `sample_rate`.
     pub fn with_sample_rate(freq: f32, sample_rate: u32) -> SineWav {
-        let reset_num = sample_rate as f32 / freq;
-        // Find the largest multiple of reset_num that fits into sample_num range of u32
-        // so the artifact of resetting happens as little as possible (about once per 27
-        // hours)
-        let cycles = (u32::MAX as f32 / reset_num).floor();
-        let reset_num = (reset_num * cycles).round() as u32;
+        let reset_num = find_reset_num(freq, sample_rate);
 
         SineWav {
             freq,
@@ -30,6 +25,30 @@ impl SineWav {
             reset_num,
         }
     }
+}
+
+/// find a sample number where we can reset to 0 where the value will
+/// be close to 0 to minimize distortion when resetting.
+///
+/// We want to minimize the sample number though because large numbers
+/// cause distortions
+fn find_reset_num(freq: f32, sample_rate: u32) -> u32 {
+    let mut best_error = f64::MAX;
+    let mut best_reset_num = 0;
+
+    for multiple in 1..100 {
+        let reset_num = sample_rate as f64 * (multiple as f64) / freq as f64;
+        let error = (reset_num.round() - reset_num).abs();
+        if error < best_error {
+            best_error = error;
+            best_reset_num = reset_num.round() as u32;
+            if error == 0.0 {
+                break;
+            }
+        }
+    }
+
+    best_reset_num - 1
 }
 
 impl crate::Sound for SineWav {
@@ -42,15 +61,14 @@ impl crate::Sound for SineWav {
     }
 
     fn next_sample(&mut self) -> Result<crate::NextSample, crate::Error> {
-        let value = 2.0 * self.sample_num as f32 * self.freq * PI / self.sample_rate as f32;
         if self.sample_num == self.reset_num {
             self.sample_num = 0;
         } else {
             self.sample_num += 1;
         }
-        Ok(crate::NextSample::Sample(
-            (value.sin() * i16::MAX as f32) as i16,
-        ))
+        let value = self.sample_num as f32 * self.freq * TAU / self.sample_rate as f32;
+        let sample = (value.sin() * i16::MAX as f32) as i16;
+        Ok(crate::NextSample::Sample(sample))
     }
 
     fn on_start_of_batch(&mut self) {}
