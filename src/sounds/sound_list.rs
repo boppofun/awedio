@@ -32,9 +32,26 @@ impl SoundList {
         self.sounds.push(sound);
     }
 
+    /// Inserts a sound at position `index`, shifting all elements after it to the right.
+    ///
+    /// Panics
+    ///
+    /// Panics if `index > len`.
+    pub fn insert(&mut self, index: usize, sound: Box<dyn Sound>) {
+        if self.sounds.is_empty() {
+            self.was_empty = true;
+        }
+        self.sounds.insert(index, sound)
+    }
+
     /// Stop all sounds including the currently playing one.
     pub fn clear(&mut self) {
         self.sounds.clear();
+    }
+
+    /// Returns the number of sounds currently in the list.
+    pub fn len(&self) -> usize {
+        self.sounds.len()
     }
 }
 
