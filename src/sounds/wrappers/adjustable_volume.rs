@@ -2,16 +2,19 @@ use crate::Sound;
 
 use super::{SetPaused, SetSpeed, SetStopped};
 
-/// A sound that can have the loudness adjusted.
+/// A sound multiplied by a linear gain adjustment.
 pub trait SetVolume {
-    /// Change the loudness.
+    /// Change the gain multiplier.
     ///
     /// The samples are multiplied by `multiplier` so 1.0 would leave the Sound
-    /// unchanged.
+    /// unchanged. 0.5 would reduce the sample values by half and 2.0 would double
+    /// them (saturating if larger than the max value).
+    ///
+    /// These changes linear and 0.5 will not sound half as loud since
     fn set_volume(&mut self, multiplier: f32);
 }
 
-/// A wrapper that adjusts the volume of the inner sound.
+/// A wrapper that adjusts the gain of the inner sound.
 pub struct AdjustableVolume<S: Sound> {
     inner: S,
     volume_adjustment: f32,
@@ -21,9 +24,11 @@ impl<S> AdjustableVolume<S>
 where
     S: Sound,
 {
-    /// Wrap `inner` such that its volume can be adjusted.
+    /// Wrap `inner` such that its gain can be adjusted.
     ///
-    /// The value is set to 1.0 so not adjustment is made.
+    /// The value is set to 1.0 so no adjustment is made.
+    ///
+    /// See `set_volume`.
     pub fn new(inner: S) -> Self {
         AdjustableVolume {
             inner,
@@ -33,6 +38,8 @@ where
 
     /// Wrap `inner` such that its volume can be adjusted and set an initial
     /// adjustment.
+    ///
+    /// See `set_volume`.
     pub fn new_with_volume(inner: S, volume_adjustment: f32) -> Self {
         AdjustableVolume {
             inner,
@@ -72,6 +79,8 @@ where
         let next = self.inner.next_sample()?;
         Ok(match next {
             crate::NextSample::Sample(s) => {
+                // Since Rust 1.45, the `as` keyword performs a *saturating cast*
+                // when casting from float to int.
                 let adjusted = (s as f32 * self.volume_adjustment) as i16;
                 crate::NextSample::Sample(adjusted)
             }
@@ -90,7 +99,7 @@ impl<S> AdjustableVolume<S>
 where
     S: Sound,
 {
-    /// Return the current volume multiplier. 1.0 is the default volume.
+    /// Return the current gain multiplier. 1.0 is the default multiplier.
     pub fn volume(&self) -> f32 {
         self.volume_adjustment
     }
