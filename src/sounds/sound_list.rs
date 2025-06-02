@@ -32,7 +32,8 @@ impl SoundList {
         self.sounds.push(sound);
     }
 
-    /// Inserts a sound at position `index`, shifting all elements after it to the right.
+    /// Inserts a sound at position `index`, shifting all elements after it to
+    /// the right.
     ///
     /// Panics
     ///

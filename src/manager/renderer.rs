@@ -6,7 +6,8 @@ use crate::Sound;
 
 use super::backend_source::BackendSource;
 
-/// The default [BackendSource]. Renderer is essentially half of [Manager][crate::manager::Manager].
+/// The default [BackendSource]. Renderer is essentially half of
+/// [Manager][crate::manager::Manager].
 pub struct Renderer {
     mixer: Controllable<SoundMixer>,
 }

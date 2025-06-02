@@ -149,7 +149,8 @@ impl CpalBackend {
     }
 }
 
-/// Converts Awedio's internal i16 samples to the format required by the audio device (type T).
+/// Converts Awedio's internal i16 samples to the format required by the audio
+/// device (type T).
 fn make_data_callback<T>(
     mut renderer: Renderer,
     channel_count: u16,

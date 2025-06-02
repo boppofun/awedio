@@ -7,8 +7,8 @@ pub trait SetVolume {
     /// Change the gain multiplier.
     ///
     /// The samples are multiplied by `multiplier` so 1.0 would leave the Sound
-    /// unchanged. 0.5 would reduce the sample values by half and 2.0 would double
-    /// them (saturating if larger than the max value).
+    /// unchanged. 0.5 would reduce the sample values by half and 2.0 would
+    /// double them (saturating if larger than the max value).
     ///
     /// These changes linear and 0.5 will not sound half as loud since
     fn set_volume(&mut self, multiplier: f32);
