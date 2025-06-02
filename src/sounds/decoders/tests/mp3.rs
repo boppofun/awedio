@@ -2,9 +2,10 @@ use super::*;
 use crate::NextSample;
 
 const SINE_WAVE_FILE: &[u8] = include_bytes!("audiocheck.net_sin_1000Hz_0dBFS_0.1s.mp3");
+const STEREO_FILE: &[u8] = include_bytes!("../../../../test_files/stereo-test.mp3");
 
 #[test]
-fn samples_of_test_file() -> std::io::Result<()> {
+fn samples_of_test_file1() -> std::io::Result<()> {
     let mut decoder = Mp3Decoder::new(std::io::Cursor::new(SINE_WAVE_FILE));
     assert_eq!(decoder.sample_rate(), 44100);
     assert_eq!(decoder.channel_count(), 1);
@@ -44,6 +45,24 @@ fn samples_of_test_file() -> std::io::Result<()> {
         }
     }
     assert_eq!(decoder.next_sample().unwrap(), NextSample::Finished);
+    assert_eq!(decoder.next_sample().unwrap(), NextSample::Finished);
+    Ok(())
+}
+
+#[test]
+fn samples_of_test_file2() -> std::io::Result<()> {
+    let mut decoder = Mp3Decoder::new(std::io::Cursor::new(STEREO_FILE));
+    assert_eq!(decoder.sample_rate(), 32000);
+    assert_eq!(decoder.channel_count(), 2);
+    for _i in 0..1_078_272 {
+        let sample = decoder.next_sample().unwrap();
+        match sample {
+            NextSample::Sample(_s) => {}
+            NextSample::MetadataChanged => unreachable!(),
+            NextSample::Paused => unreachable!(),
+            NextSample::Finished => unreachable!(),
+        }
+    }
     assert_eq!(decoder.next_sample().unwrap(), NextSample::Finished);
     Ok(())
 }
