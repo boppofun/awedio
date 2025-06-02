@@ -7,7 +7,7 @@ description = "A low-overhead and adaptable audio playback library"
 license = "MIT OR Apache-2.0"
 keywords = ["audio", "playback"]
 categories = ["multimedia::audio", "embedded"]
-repository = "https://github.com/10buttons/awedio"
+repository = "https://github.com/boppofun/awedio"
 
 [features]
 default = ["cpal", "async", "symphonia-all", "qoa"]
