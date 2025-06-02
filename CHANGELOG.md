@@ -1,3 +1,29 @@
+## [0.5.0] - 2025-06-02
+
+### Features
+
+- Add stoppable to Sound
+- Add Controllable::finish_with_inner
+- Add Empty sound
+- Add SoundList::insert and SoundList::len
+
+### Bug Fixes
+
+- Sine wav off by one and error accumulation
+- [**breaking**] Rename SineWav to SineWave
+
+### Documentation
+
+- Fix links
+- Update README examples to execute as tests
+- Improve docs for adjustable volume
+- Apply cargo-fmt line wrap
+- Rename github org to boppofun
+
+### Testing
+
+- Add another mp3 file test
+
 # Changelog
 
 ## Unreleased
