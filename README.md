@@ -62,7 +62,7 @@ controller.set_paused(true);
   esp-idf. Implemented in its [own crate][awedio_esp32].
 
 Backends are implemented by pulling samples from a
-[BackendSource][crate::manager::BackendSource] such as the [Renderer].
+[BackendSource] such as the [Renderer].
 
 ## Cargo Features
 
@@ -137,3 +137,4 @@ be dual licensed as above, without any additional terms or conditions.
 [Manager]: https://docs.rs/awedio/latest/awedio/manager/struct.Manager.html
 [SoundList]: https://docs.rs/awedio/latest/awedio/sounds/struct.SoundList.html
 [Renderer]: https://docs.rs/awedio/latest/awedio/manager/struct.Renderer.html
+[BackendSource]: https://docs.rs/awedio/latest/awedio/manager/trait.BackendSource.html
