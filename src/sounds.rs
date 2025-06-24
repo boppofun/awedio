@@ -4,6 +4,7 @@ pub mod wrappers;
 
 mod empty;
 mod memory_sound;
+mod open_bytes;
 mod open_file;
 mod silence;
 mod sine_wave;
@@ -14,6 +15,7 @@ mod sounds_from_fn;
 pub use empty::Empty;
 pub use memory_sound::MemorySound;
 pub use memory_sound::UnsupportedMetadataChangeError;
+pub use open_bytes::open_bytes;
 pub use open_file::open_file;
 pub use open_file::open_file_with_buffer_capacity;
 pub use silence::Silence;
