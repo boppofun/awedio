@@ -16,6 +16,7 @@ pub use empty::Empty;
 pub use memory_sound::MemorySound;
 pub use memory_sound::UnsupportedMetadataChangeError;
 pub use open_bytes::open_bytes;
+pub use open_bytes::open_reader;
 pub use open_file::open_file;
 pub use open_file::open_file_with_buffer_capacity;
 pub use silence::Silence;
