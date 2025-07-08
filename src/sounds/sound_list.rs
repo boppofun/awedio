@@ -69,6 +69,13 @@ impl From<SoundList> for Vec<Box<dyn Sound>> {
     }
 }
 
+impl FromIterator<Box<dyn Sound>> for SoundList {
+    fn from_iter<T: IntoIterator<Item = Box<dyn Sound>>>(iter: T) -> Self {
+        let vec: Vec<_> = iter.into_iter().collect();
+        vec.into()
+    }
+}
+
 // Returned only when no sounds exist so they shouldn't be used in practice.
 const DEFAULT_CHANNEL_COUNT: u16 = 2;
 const DEFAULT_SAMPLE_RATE: u32 = 44100;
