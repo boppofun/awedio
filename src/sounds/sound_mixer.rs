@@ -102,7 +102,7 @@ impl Sound for SoundMixer {
                     }
                     Ok(NextSample::MetadataChanged) => {
                         // We know that the channel_count and sample_rate haven't changed because
-                        // we have wrapped the sound in converters. It is pausable that the
+                        // we have wrapped the sound in converters. It is possible that the
                         // MetadataChanged implies we need to start over at the first channel.
                         // Normally however Metadata only change on the first sample of a frame
                         // so handle that by looping around and calling next_sample again

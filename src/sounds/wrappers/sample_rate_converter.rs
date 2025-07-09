@@ -105,8 +105,7 @@ where
     }
 
     fn fill_frames(&mut self) -> Result<bool, crate::Error> {
-        let from_rate = self.inner.sample_rate();
-        let (first_samples, next_samples) = if from_rate == self.to_rate {
+        let (first_samples, next_samples) = if self.from_rate_scaled == self.to_rate_scaled {
             (Vec::new(), Vec::new())
         } else {
             let mut collect_frame = || match self.inner.next_frame() {
@@ -188,7 +187,6 @@ where
             self.channel_count_changed = false;
             return Ok(NextSample::MetadataChanged);
         }
-
         // the algorithm below doesn't work if `self.from_rate_scaled ==
         // self.to_rate_scaled`
         if self.from_rate_scaled == self.to_rate_scaled {
@@ -196,7 +194,7 @@ where
             let next = self.inner.next_sample()?;
             match next {
                 NextSample::Sample(_) | NextSample::Paused | NextSample::Finished => {
-                    return Ok(next)
+                    return Ok(next);
                 }
                 NextSample::MetadataChanged => {
                     if self.inner.sample_rate() != self.to_rate {

@@ -1,5 +1,8 @@
 use super::*;
-use crate::tests::{ConstantValueSound, DEFAULT_CHANNEL_COUNT, DEFAULT_SAMPLE_RATE};
+use crate::{
+    sounds::SoundList,
+    tests::{ConstantValueSound, DEFAULT_CHANNEL_COUNT, DEFAULT_SAMPLE_RATE},
+};
 
 #[test]
 fn additional_silent_sounds_do_not_affect_first() {
@@ -28,4 +31,25 @@ fn two_sounds_add_together() {
     assert_eq!(mixer.next_sample().unwrap(), NextSample::Sample(12));
     assert_eq!(mixer.next_sample().unwrap(), NextSample::Sample(12));
     assert_eq!(mixer.next_sample().unwrap(), NextSample::Sample(12));
+}
+
+#[test]
+fn empty_sound_list_not_same_sample_rate() {
+    // Reporducing issue when SoundMixer matches audio but goes through SoundList
+    // with different sample rate
+    let mut mixer = SoundMixer::new(2, 40000);
+    let (sound, mut controller) = SoundList::new().controllable();
+    mixer.add(Box::new(sound));
+    mixer.on_start_of_batch();
+    assert_eq!(NextSample::Finished, mixer.next_sample().unwrap());
+    let mut sound = ConstantValueSound::new(5);
+
+    sound.set_channel_count(2);
+    sound.set_sample_rate(40000);
+    controller.add(Box::new(sound));
+
+    assert_eq!(NextSample::Finished, mixer.next_sample().unwrap());
+
+    mixer.on_start_of_batch();
+    assert_eq!(mixer.next_sample().unwrap(), NextSample::Sample(5));
 }
