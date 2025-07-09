@@ -78,7 +78,7 @@ impl FromIterator<Box<dyn Sound>> for SoundList {
 
 // Returned only when no sounds exist so they shouldn't be used in practice.
 const DEFAULT_CHANNEL_COUNT: u16 = 2;
-const DEFAULT_SAMPLE_RATE: u32 = 44100;
+const DEFAULT_SAMPLE_RATE: u32 = 48000;
 
 impl Sound for SoundList {
     fn channel_count(&self) -> u16 {
@@ -136,7 +136,7 @@ impl Sound for SoundList {
 
 impl AddSound for SoundList {
     fn add(&mut self, sound: Box<dyn Sound>) {
-        self.add(sound);
+        SoundList::add(self, sound);
     }
 }
 

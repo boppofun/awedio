@@ -25,7 +25,7 @@ pub trait Sound: Send {
     fn channel_count(&self) -> u16;
 
     /// Returns the number of samples per second for each channel for this sound
-    /// (e.g. 44,100).
+    /// (e.g. 48,000).
     fn sample_rate(&self) -> u32;
 
     /// Retrieve the next sample or notification if something has changed.

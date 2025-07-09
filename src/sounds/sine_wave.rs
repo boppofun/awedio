@@ -9,9 +9,9 @@ pub struct SineWave {
 }
 
 impl SineWave {
-    /// A constant pitch sound with a default sample rate of 44,100.
+    /// A constant pitch sound with a default sample rate of 48,000.
     pub fn new(freq: f32) -> SineWave {
-        Self::with_sample_rate(freq, 44100)
+        Self::with_sample_rate(freq, 48000)
     }
 
     /// A constant pitch sound with `sample_rate`.
