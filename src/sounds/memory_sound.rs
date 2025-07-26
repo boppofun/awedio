@@ -134,6 +134,12 @@ impl Sound for MemorySound {
     fn on_start_of_batch(&mut self) {}
 }
 
+impl AsRef<[i16]> for MemorySound {
+    fn as_ref(&self) -> &[i16] {
+        &self.samples
+    }
+}
+
 #[cfg(test)]
 #[path = "./tests/memory_sound.rs"]
 mod tests;
