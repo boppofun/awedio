@@ -33,3 +33,26 @@ fn one_khz_wav() {
     assert_eq!(wav.next_sample().unwrap(), NextSample::Sample(32766)); // 11
     assert_eq!(wav.next_sample().unwrap(), NextSample::Sample(32451)); // 12
 }
+
+#[test]
+fn high_freq_wav_memory_sound() {
+    let mut wav = SineWave::as_memory_sound(12000.0, 48000);
+    assert_eq!(wav.as_ref().len(), 4);
+    assert_eq!(wav.sample_rate(), 48000);
+    assert_eq!(wav.channel_count(), 1);
+    assert_eq!(wav.next_sample().unwrap(), NextSample::Sample(i16::MAX));
+    assert_eq!(wav.next_sample().unwrap(), NextSample::Sample(0));
+    assert_eq!(wav.next_sample().unwrap(), NextSample::Sample(i16::MIN + 1));
+    assert_eq!(wav.next_sample().unwrap(), NextSample::Sample(0));
+    assert_eq!(wav.next_sample().unwrap(), NextSample::Sample(i16::MAX));
+    assert_eq!(wav.next_sample().unwrap(), NextSample::Sample(0));
+}
+
+#[test]
+fn low_freq_wav_memory_sound() {
+    let mut wav = SineWave::as_memory_sound(20.0, 48000);
+    assert_eq!(wav.as_ref().len(), 2400);
+    assert_eq!(wav.sample_rate(), 48000);
+    assert_eq!(wav.channel_count(), 1);
+    assert_eq!(wav.next_sample().unwrap(), NextSample::Sample(85));
+}

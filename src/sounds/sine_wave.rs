@@ -1,4 +1,8 @@
-use std::f32::consts::TAU;
+use std::{f32::consts::TAU, sync::Arc};
+
+use crate::{NextSample, Sound};
+
+use super::MemorySound;
 
 /// A constant pitch sound of infinite length.
 pub struct SineWave {
@@ -24,6 +28,21 @@ impl SineWave {
             sample_num: 0,
             reset_num,
         }
+    }
+
+    /// Precompute samples into a looping memory sound
+    pub fn as_memory_sound(freq: f32, sample_rate: u32) -> MemorySound {
+        let mut sine_wave = SineWave::with_sample_rate(freq, sample_rate);
+        let mut samples = vec![];
+        for _s in 0..=sine_wave.reset_num {
+            let Ok(NextSample::Sample(sample)) = sine_wave.next_sample() else {
+                unreachable!("sine_wave should only return Samples");
+            };
+            samples.push(sample);
+        }
+        let mut sound = MemorySound::from_samples(Arc::new(samples), 1, sample_rate);
+        sound.set_looping(true);
+        sound
     }
 }
 
