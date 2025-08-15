@@ -158,7 +158,7 @@ impl Sound for SoundMixer {
             }
             (true, false) => {
                 self.next_output_channel_idx = 0;
-                Ok(NextSample::Finished)
+                Ok(NextSample::Paused)
             }
             (false, _) => Ok(NextSample::Sample(output)),
         }
