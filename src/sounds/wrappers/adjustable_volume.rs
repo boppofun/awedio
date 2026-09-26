@@ -15,9 +15,71 @@ pub trait SetVolume {
 }
 
 /// A wrapper that adjusts the gain of the inner sound.
+///
+/// Volumes below 16.0 are applied with fixed point math.
 pub struct AdjustableVolume<S: Sound> {
     inner: S,
     volume_adjustment: f32,
+    gain: Gain,
+}
+
+/// Number of fractional bits for fixed point gains.
+const FIXED_POINT_SHIFT: u32 = 12;
+/// The largest fixed point gain such that `i16::MIN * gain` fits in an i32.
+const MAX_FIXED_POINT_GAIN: i32 = u16::MAX as i32;
+
+/// How the volume adjustment is applied to samples. Computed when the volume
+/// changes so the per sample work is minimal.
+#[derive(Debug, Clone, Copy)]
+enum Gain {
+    /// Samples are unchanged.
+    Unity,
+    /// All samples are 0.
+    Mute,
+    /// Multiply by the value and divide by 2^FIXED_POINT_SHIFT.
+    FixedPoint(i32),
+    /// Large or negative volumes.
+    Float(f32),
+}
+
+impl Gain {
+    fn new(volume_adjustment: f32) -> Gain {
+        if volume_adjustment == 1.0 {
+            return Gain::Unity;
+        }
+        if volume_adjustment == 0.0 {
+            return Gain::Mute;
+        }
+        let fixed = (volume_adjustment * (1 << FIXED_POINT_SHIFT) as f32).round();
+        if fixed >= 1.0 && fixed <= MAX_FIXED_POINT_GAIN as f32 {
+            Gain::FixedPoint(fixed as i32)
+        } else {
+            Gain::Float(volume_adjustment)
+        }
+    }
+
+    #[inline]
+    fn apply(self, samples: &mut [i16]) {
+        match self {
+            Gain::Unity => (),
+            Gain::Mute => samples.fill(0),
+            Gain::FixedPoint(gain) => {
+                for s in samples {
+                    // Division truncates toward zero like the float cast
+                    // below. The compiler turns this into shifts.
+                    let adjusted = *s as i32 * gain / (1 << FIXED_POINT_SHIFT);
+                    *s = adjusted.clamp(i16::MIN as i32, i16::MAX as i32) as i16;
+                }
+            }
+            Gain::Float(gain) => {
+                for s in samples {
+                    // Since Rust 1.45, the `as` keyword performs a *saturating cast*
+                    // when casting from float to int.
+                    *s = (*s as f32 * gain) as i16;
+                }
+            }
+        }
+    }
 }
 
 impl<S> AdjustableVolume<S>
@@ -41,6 +103,7 @@ where
         AdjustableVolume {
             inner,
             volume_adjustment,
+            gain: Gain::new(volume_adjustment),
         }
     }
 
@@ -75,12 +138,7 @@ where
     #[inline]
     fn next_samples(&mut self, buf: &mut [i16]) -> crate::Filled {
         let filled = self.inner.next_samples(buf);
-        let volume_adjustment = self.volume_adjustment;
-        for s in &mut buf[..filled.written] {
-            // Since Rust 1.45, the `as` keyword performs a *saturating cast*
-            // when casting from float to int.
-            *s = (*s as f32 * volume_adjustment) as i16;
-        }
+        self.gain.apply(&mut buf[..filled.written]);
         filled
     }
 
@@ -105,6 +163,7 @@ where
 {
     fn set_volume(&mut self, new: f32) {
         self.volume_adjustment = new;
+        self.gain = Gain::new(new);
     }
 }
 
