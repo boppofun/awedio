@@ -40,7 +40,9 @@ fn open_file_with_reader(
         .unwrap_or_default()
         .to_lowercase();
     let decoder: Box<dyn Sound> = match extension.as_ref() {
-        #[cfg(feature = "rmp3-mp3")]
+        #[cfg(feature = "mbop3-mp3")]
+        "mp3" => Box::new(super::decoders::Mbop3Decoder::new(reader)),
+        #[cfg(all(feature = "rmp3-mp3", not(feature = "mbop3-mp3")))]
         "mp3" => Box::new(super::decoders::Mp3Decoder::new(reader)),
         #[cfg(feature = "qoa")]
         "qoa" => Box::new(super::decoders::QoaDecoder::new(reader)?),

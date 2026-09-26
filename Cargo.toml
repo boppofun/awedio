@@ -15,6 +15,7 @@ async = ["dep:tokio"]
 cpal = ["dep:cpal"]
 
 rmp3-mp3 = ["dep:rmp3"]
+mbop3-mp3 = ["dep:mbop3"]
 qoa = ["dep:qoaudio"]
 hound-wav = ["dep:hound"]
 
@@ -38,6 +39,7 @@ symphonia-vorbis = ["symphonia", "symphonia/vorbis"]
 tokio = { version = "1.26.0", features = ["sync"], optional = true }
 hound = { version = "3.5.0", optional = true }
 rmp3 = { version = "0.3.1", features = ["std"], optional = true }
+mbop3 = { version = "0.1", optional = true, features = ["alloc"] }
 cpal = { version = "0.18", optional = true }
 symphonia = { version = "0.6", optional = true, default-features = false }
 log = "0.4.20"
