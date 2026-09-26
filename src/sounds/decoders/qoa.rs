@@ -1,6 +1,5 @@
-use crate::sound::NextSample;
-use crate::Sound;
-use qoaudio::{DecodeError, QoaDecoder as RawDecoder, QoaItem};
+use crate::{Filled, Sound, Stop};
+use qoaudio::{DecodeError, QoaDecoder as RawQoaDecoder};
 use std::io::Read;
 
 /// Decoder for the [QOA](https://qoaformat.org/) format.
@@ -8,7 +7,7 @@ pub struct QoaDecoder<R>
 where
     R: Read + Send,
 {
-    raw_decoder: RawDecoder<R>,
+    raw_decoder: RawQoaDecoder<R>,
     sample_rate: u32,
     channel_count: u16,
 }
@@ -18,15 +17,16 @@ where
     R: Read + Send,
 {
     /// Attempts to decode the data as QOA audio.
+    ///
+    /// QoaDecoder makes many small reads so wrapping a `File` with a
+    /// `BufReader` is recommended.
     pub fn new(data: R) -> Result<QoaDecoder<R>, DecodeError> {
-        let mut raw_decoder = RawDecoder::new(data)?;
-
-        let QoaItem::FrameHeader(first_frame) = raw_decoder
-            .next()
-            .ok_or(DecodeError::InvalidFrameHeader)??
-        else {
-            return Err(DecodeError::InvalidFrameHeader);
-        };
+        let mut raw_decoder = RawQoaDecoder::new(data)?;
+        if raw_decoder.current_frame_header().num_channels == 0 {
+            // In streaming mode the first frame header has not been read yet.
+            raw_decoder.next_frame()?.ok_or(DecodeError::NoSamples)?;
+        }
+        let first_frame = raw_decoder.current_frame_header();
         let sample_rate = first_frame.sample_rate;
         let channel_count = first_frame.num_channels as u16;
 
@@ -55,28 +55,33 @@ where
         self.sample_rate
     }
 
-    fn next_sample(&mut self) -> Result<NextSample, crate::Error> {
-        loop {
-            let Some(next_sample) = self.raw_decoder.next() else {
-                return Ok(NextSample::Finished);
-            };
-            let next_sample = next_sample?;
-
-            match next_sample {
-                QoaItem::Sample(s) => return Ok(NextSample::Sample(s)),
-                QoaItem::FrameHeader(f) => {
+    fn next_samples(&mut self, buf: &mut [i16]) -> Filled {
+        let mut written = 0;
+        while written < buf.len() {
+            match self.raw_decoder.decode_into(&mut buf[written..]) {
+                Ok(0) => (),
+                Ok(n) => {
+                    written += n;
+                    continue;
+                }
+                Err(e) => return Filled::stopped(written, Stop::Error(e.into())),
+            }
+            // The current frame is done.
+            match self.raw_decoder.next_frame() {
+                Ok(None) => return Filled::stopped(written, Stop::Finished),
+                Ok(Some(f)) => {
                     if f.num_channels as u16 != self.channel_count
                         || f.sample_rate != self.sample_rate
                     {
                         self.channel_count = f.num_channels.into();
                         self.sample_rate = f.sample_rate;
-                        return Ok(NextSample::MetadataChanged);
+                        return Filled::stopped(written, Stop::MetadataChanged);
                     }
-                    // No metadata change. Continue and read next sample
-                    continue;
                 }
+                Err(e) => return Filled::stopped(written, Stop::Error(e.into())),
             }
         }
+        Filled::all(written)
     }
 
     fn on_start_of_batch(&mut self) {}

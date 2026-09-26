@@ -9,7 +9,7 @@ pub trait SetStopped {
 }
 
 /// A wrapper to make a Sound stoppable.
-/// A stopped sound will always return `NextSample::Finished`.
+/// A stopped sound will always return `Stop::Finished`.
 pub struct Stoppable<S: Sound> {
     inner: S,
     stopped: bool,
@@ -56,11 +56,12 @@ where
         self.inner.sample_rate()
     }
 
-    fn next_sample(&mut self) -> Result<crate::NextSample, crate::Error> {
+    #[inline]
+    fn next_samples(&mut self, buf: &mut [i16]) -> crate::Filled {
         if self.stopped {
-            return Ok(crate::NextSample::Finished);
+            return crate::Filled::stopped(0, crate::Stop::Finished);
         }
-        self.inner.next_sample()
+        self.inner.next_samples(buf)
     }
 
     fn on_start_of_batch(&mut self) {

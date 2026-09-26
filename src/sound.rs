@@ -20,6 +20,10 @@ use crate::{
 /// played on a [Manager][crate::manager::Manager]. Sounds can be wrapped to
 /// modify the inner sound, often by using helper functions of this trait
 /// (e.g. [pausable][Sound::pausable]).
+///
+/// Samples are produced in batches by [next_samples][Sound::next_samples].
+/// For tests and other rare callers that want a single sample or frame at a
+/// time see [SampleBySample][crate::sounds::wrappers::SampleBySample].
 pub trait Sound: Send {
     /// Returns the number of channels.
     fn channel_count(&self) -> u16;
@@ -28,24 +32,44 @@ pub trait Sound: Send {
     /// (e.g. 48,000).
     fn sample_rate(&self) -> u32;
 
-    /// Retrieve the next sample or notification if something has changed.
-    /// The first sample is for the first channel and the second is the for
-    /// second and so on until channel_count and then wraps back to the first
-    /// channel. If any NextSample variant besides `Sample` is returned then
-    /// the following `NextSample::Sample` is for the first channel. If a Sound
-    /// has returned `Paused` it is expected that the consumer will call
-    /// next_sample again in the future. If a Sound has returned `Finished` it
-    /// is not expected for the consumer to call next_sample again but if called
-    /// `Finished` will normally be returned again. After Finished has been
-    /// returned, channel_count() and sample_rate() may return different values
-    /// without MetadataChanged being returned.
+    /// Fill `buf` with the next samples.
     ///
-    /// If an error is returned it is not specified what will happen if
-    /// next_sample is called again. Individual implementations can specify
-    /// which errors are recoverable if any. Most consumers will either pass the
-    /// error up or log the error and stop playing the sound (e.g. `SoundMixer`
-    /// and `SoundList`).
-    fn next_sample(&mut self) -> Result<NextSample, crate::Error>;
+    /// Samples are interleaved by channel: the first sample is for the first
+    /// channel, the second is for the second channel and so on until
+    /// channel_count and then wraps back to the first channel.
+    ///
+    /// The caller must pass a `buf` whose length is a multiple of
+    /// `channel_count()`. The Sound writes to `buf[..written]` where `written`
+    /// is always a multiple of `channel_count()` (i.e. only whole frames are
+    /// written). The caller must not assume anything about the contents of
+    /// `buf` after `written`.
+    ///
+    /// If `stop` is None, `written` is equal to `buf.len()`. Otherwise `stop`
+    /// describes why fewer samples may have been written. Samples written
+    /// before a stop are valid and should be played.
+    ///
+    /// * [Stop::MetadataChanged]: the channel count and/or sample rate may
+    ///   have changed after the written samples. The caller should query
+    ///   `channel_count()` and `sample_rate()` again and may call
+    ///   `next_samples` again immediately. A Sound must not keep returning
+    ///   MetadataChanged without writing samples (or returning another stop)
+    ///   since callers such as SoundMixer loop until they get samples.
+    /// * [Stop::Paused]: no more samples for now. More might come later. It
+    ///   is expected that the Sound will not be pulled again until the next
+    ///   batch.
+    /// * [Stop::Finished]: all samples have been retrieved and no more will
+    ///   come. If called again `Finished` will normally be returned again.
+    ///   After Finished has been returned, channel_count() and sample_rate()
+    ///   may return different values without MetadataChanged being returned.
+    /// * [Stop::Error]: it is not specified what will happen if next_samples
+    ///   is called again. Individual implementations can specify which errors
+    ///   are recoverable if any. Most consumers will either pass the error up
+    ///   or log the error and stop playing the sound (e.g. `SoundMixer` and
+    ///   `SoundList`).
+    ///
+    /// [on_start_of_batch][Sound::on_start_of_batch] is called once per batch
+    /// and then `next_samples` may be called one or more times for that batch.
+    fn next_samples(&mut self, buf: &mut [i16]) -> Filled;
 
     /// Called whenever a new batch of audio samples is requested by the
     /// backend.
@@ -53,43 +77,6 @@ pub trait Sound: Send {
     /// This is a good place to put code that needs to run fairly frequently,
     /// but not for every single audio sample.
     fn on_start_of_batch(&mut self);
-
-    /// Returns the next sample for all channels.
-    ///
-    /// It is the callers responsibility to ensure this function is only called
-    /// at the start of a frame (i.e. the first channel is the next to be
-    /// returned from next_sample).
-    ///
-    /// If an Error, `Paused`, `Finished`, or `MetadataChanged` are encountered
-    /// while collecting samples, an Err(Ok(NextSample)) of that variant
-    /// will be returned and any previously collected samples are lost.
-    /// Err(Ok(NextSample::Sample)) will never be returned. If an error is
-    /// encountered Err(Err(error::Error)) is returned.
-    fn next_frame(&mut self) -> Result<Vec<i16>, Result<NextSample, crate::Error>> {
-        let mut samples = Vec::with_capacity(self.channel_count() as usize);
-        self.append_next_frame_to(&mut samples)?;
-        Ok(samples)
-    }
-
-    /// Same as `next_frame` but samples are appended into an existing Vec.
-    ///
-    /// Any existing data is left unmodified.
-    fn append_next_frame_to(
-        &mut self,
-        samples: &mut Vec<i16>,
-    ) -> Result<(), Result<NextSample, crate::Error>> {
-        for _ in 0..self.channel_count() {
-            let next = self.next_sample();
-            match next {
-                Ok(NextSample::Sample(s)) => samples.push(s),
-                Ok(NextSample::MetadataChanged)
-                | Ok(NextSample::Paused)
-                | Ok(NextSample::Finished)
-                | Err(_) => return Err(next),
-            }
-        }
-        Ok(())
-    }
 
     /// Read the entire sound into memory. MemorySound can be cloned for
     /// efficient reuse. See [MemorySound::from_sound].
@@ -231,59 +218,95 @@ pub trait Sound: Send {
 
     /// Skip the next `duration` of samples.
     ///
-    /// This is done by calling next_sample repeatedly.
+    /// This is done by calling next_samples repeatedly and discarding the
+    /// samples.
     ///
     /// Returns true if all samples were successfully skipped, false if a Paused
     /// or Finished were encountered first. MetadataChanged events are handled
     /// correctly but are not returned.
     fn skip(&mut self, duration: Duration) -> Result<bool, crate::Error> {
+        const SCRATCH_LEN: usize = 256;
+        let mut scratch = [0_i16; SCRATCH_LEN];
+        // Only used for sounds with more channels than fit in scratch.
+        let mut large_scratch = Vec::new();
         let mut current_channel_count = self.channel_count();
         let mut current_sample_rate = self.sample_rate();
-        let mut num_samples_remaining =
-            utils::duration_to_num_samples(duration, current_channel_count, current_sample_rate);
+        let mut num_frames_remaining =
+            utils::duration_to_num_samples(duration, 1, current_sample_rate);
 
-        while num_samples_remaining > 0 {
-            let next = self.next_sample()?;
-            match next {
-                NextSample::Sample(_) => {
-                    num_samples_remaining -= 1;
-                }
-                NextSample::MetadataChanged => {
-                    let new_channel_count = self.channel_count();
+        while num_frames_remaining > 0 {
+            let channel_count = current_channel_count as usize;
+            let buf: &mut [i16] = if channel_count <= SCRATCH_LEN {
+                &mut scratch
+            } else {
+                large_scratch.resize(channel_count, 0);
+                &mut large_scratch
+            };
+            let max_frames = (buf.len() / channel_count) as u64;
+            let frames = num_frames_remaining.min(max_frames) as usize;
+            let filled = self.next_samples(&mut buf[..frames * channel_count]);
+            num_frames_remaining -= (filled.written / channel_count) as u64;
+            match filled.stop {
+                None => (),
+                Some(Stop::MetadataChanged) => {
                     let new_sample_rate = self.sample_rate();
-                    if new_channel_count != current_channel_count
-                        || new_sample_rate != current_sample_rate
-                    {
-                        num_samples_remaining = utils::convert_num_samples(
-                            num_samples_remaining,
-                            current_channel_count,
+                    if new_sample_rate != current_sample_rate {
+                        num_frames_remaining = utils::convert_num_samples(
+                            num_frames_remaining,
+                            1,
                             current_sample_rate,
-                            new_channel_count,
+                            1,
                             new_sample_rate,
                         );
-                        current_channel_count = new_channel_count;
-                        current_sample_rate = new_sample_rate;
                     }
+                    current_channel_count = self.channel_count();
+                    current_sample_rate = new_sample_rate;
                 }
-                NextSample::Paused => return Ok(false),
-                NextSample::Finished => return Ok(false),
+                Some(Stop::Paused) | Some(Stop::Finished) => return Ok(false),
+                Some(Stop::Error(e)) => return Err(e),
             }
         }
         Ok(true)
     }
 }
 
-/// The result of [Sound::next_sample]
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub enum NextSample {
-    /// A sample for one channel. Channels are interleaved. The first sample is
-    /// for the first channel and so forth and repeats (e.g. L-R-L-R-L-R).
-    Sample(i16),
+/// The result of [Sound::next_samples].
+#[derive(Debug)]
+#[must_use]
+pub struct Filled {
+    /// The number of samples written to the start of the buffer. Always a
+    /// multiple of the channel count.
+    pub written: usize,
+    /// Why the buffer was not completely filled or None if it was completely
+    /// filled.
+    pub stop: Option<Stop>,
+}
 
-    /// The number of channels or the sample rate has changed. Continue to
-    /// retrieve samples afterward. The next sample will always be for the
-    /// first track regardless of what track was next
-    // before this value was returned.
+impl Filled {
+    /// The entire buffer of length `written` was filled.
+    #[inline]
+    pub fn all(written: usize) -> Filled {
+        Filled {
+            written,
+            stop: None,
+        }
+    }
+
+    /// `written` samples were written and then `stop` was encountered.
+    #[inline]
+    pub fn stopped(written: usize, stop: Stop) -> Filled {
+        Filled {
+            written,
+            stop: Some(stop),
+        }
+    }
+}
+
+/// Why a [Sound] stopped writing samples in [Sound::next_samples].
+#[derive(Debug)]
+pub enum Stop {
+    /// The number of channels or the sample rate might have changed. Continue
+    /// to retrieve samples afterward with the new metadata.
     MetadataChanged,
 
     /// No more samples for now. More might come later. It is expected that the
@@ -292,23 +315,36 @@ pub enum NextSample {
 
     /// All samples have been retrieved and no more will come.
     Finished,
+
+    /// An error occurred. See [Sound::next_samples] for details.
+    Error(crate::Error),
+}
+
+impl From<crate::Error> for Stop {
+    fn from(e: crate::Error) -> Self {
+        Stop::Error(e)
+    }
 }
 
 impl Sound for Box<dyn Sound> {
+    #[inline]
     fn on_start_of_batch(&mut self) {
         self.deref_mut().on_start_of_batch()
     }
 
+    #[inline]
     fn channel_count(&self) -> u16 {
         self.deref().channel_count()
     }
 
+    #[inline]
     fn sample_rate(&self) -> u32 {
         self.deref().sample_rate()
     }
 
-    fn next_sample(&mut self) -> Result<NextSample, crate::Error> {
-        self.deref_mut().next_sample()
+    #[inline]
+    fn next_samples(&mut self, buf: &mut [i16]) -> Filled {
+        self.deref_mut().next_samples(buf)
     }
 }
 

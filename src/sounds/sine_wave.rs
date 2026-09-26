@@ -1,6 +1,6 @@
 use std::{f32::consts::TAU, sync::Arc};
 
-use crate::{NextSample, Sound};
+use crate::Sound;
 
 use super::MemorySound;
 
@@ -36,13 +36,9 @@ impl SineWave {
     /// Precompute samples into a looping memory sound
     pub fn as_memory_sound(freq: f32, sample_rate: u32) -> MemorySound {
         let mut sine_wave = SineWave::with_sample_rate(freq, sample_rate);
-        let mut samples = vec![];
-        for _s in 0..=sine_wave.reset_num {
-            let Ok(NextSample::Sample(sample)) = sine_wave.next_sample() else {
-                unreachable!("sine_wave should only return Samples");
-            };
-            samples.push(sample);
-        }
+        let mut samples = vec![0; sine_wave.reset_num as usize + 1];
+        let filled = sine_wave.next_samples(&mut samples);
+        debug_assert!(filled.stop.is_none());
         let mut sound = MemorySound::from_samples(Arc::new(samples), 1, sample_rate);
         sound.set_looping(true);
         sound
@@ -86,17 +82,18 @@ impl crate::Sound for SineWave {
         self.sample_rate
     }
 
-    fn next_sample(&mut self) -> Result<crate::NextSample, crate::Error> {
-        if self.sample_num == self.reset_num {
-            self.sample_num = 0;
-        } else {
-            self.sample_num += 1;
+    fn next_samples(&mut self, buf: &mut [i16]) -> crate::Filled {
+        let freq = self.freq;
+        let sample_rate = self.sample_rate as f32;
+        for sample in buf.iter_mut() {
+            if self.sample_num == self.reset_num {
+                self.sample_num = 0;
+            } else {
+                self.sample_num += 1;
+            }
+            *sample = sample_for(self.sample_num as f32, freq, sample_rate);
         }
-        Ok(crate::NextSample::Sample(sample_for(
-            self.sample_num as f32,
-            self.freq,
-            self.sample_rate as f32,
-        )))
+        crate::Filled::all(buf.len())
     }
 
     fn on_start_of_batch(&mut self) {}

@@ -69,12 +69,13 @@ where
         u32::max(1, new_rate)
     }
 
-    fn next_sample(&mut self) -> Result<crate::NextSample, crate::Error> {
+    #[inline]
+    fn next_samples(&mut self, buf: &mut [i16]) -> crate::Filled {
         if self.speed_changed {
             self.speed_changed = false;
-            return Ok(crate::NextSample::MetadataChanged);
+            return crate::Filled::stopped(0, crate::Stop::MetadataChanged);
         }
-        self.inner.next_sample()
+        self.inner.next_samples(buf)
     }
 
     fn on_start_of_batch(&mut self) {

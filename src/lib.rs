@@ -13,8 +13,9 @@ mod sound;
 mod tests;
 
 pub use error::Error;
-pub use sound::NextSample;
+pub use sound::Filled;
 pub use sound::Sound;
+pub use sound::Stop;
 
 /// Start outputting audio with the default backend, device, and configs.
 ///

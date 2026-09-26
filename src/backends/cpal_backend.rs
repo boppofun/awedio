@@ -104,7 +104,7 @@ impl CpalBackend {
     {
         let (manager, mut renderer) = Manager::new();
         renderer.set_output_channel_count_and_sample_rate(self.channel_count, self.sample_rate);
-        let Ok(crate::NextSample::MetadataChanged) = renderer.next_sample() else {
+        let Some(crate::Stop::MetadataChanged) = renderer.next_samples(&mut []).stop else {
             panic!("expected MetadataChanged event")
         };
 
@@ -160,24 +160,43 @@ fn make_data_callback<T>(
 where
     T: SizedSample + FromSample<i16>,
 {
+    // The renderer is called with chunks of this many frames. It is not based
+    // on the cpal buffer size since that is not known with
+    // CpalBufferSize::Default and resizing in the callback would allocate on
+    // the audio thread. Per call overhead is negligible past ~128 frames and
+    // this matches the chunk size the SoundMixer renders in internally.
+    const CHUNK_NUM_FRAMES: usize = 256;
+    let mut samples = vec![0_i16; CHUNK_NUM_FRAMES * channel_count as usize];
     move |buffer: &mut [T], _info: &cpal::OutputCallbackInfo| {
         assert!(buffer.len().is_multiple_of(channel_count as usize));
 
         renderer.on_start_of_batch();
 
-        buffer.fill_with(|| {
-            let sample = renderer
-                .next_sample()
-                .expect("renderer should never return an Error");
-            match sample {
-                crate::NextSample::Sample(s) => T::from_sample(s),
-                crate::NextSample::MetadataChanged => {
-                    unreachable!("we never change metadata mid-batch")
+        let mut stopped = false;
+        for out in buffer.chunks_mut(samples.len()) {
+            let samples = &mut samples[..out.len()];
+            let written = if stopped {
+                0
+            } else {
+                let filled = renderer.next_samples(samples);
+                match filled.stop {
+                    None => (),
+                    Some(crate::Stop::MetadataChanged) => {
+                        unreachable!("we never change metadata mid-batch")
+                    }
+                    // TODO: implement pausing and finishing
+                    Some(crate::Stop::Paused) | Some(crate::Stop::Finished) => stopped = true,
+                    Some(crate::Stop::Error(_)) => {
+                        unreachable!("renderer should never return an Error")
+                    }
                 }
-                crate::NextSample::Paused => T::from_sample(0), // TODO: implement pausing
-                crate::NextSample::Finished => T::from_sample(0), // TODO: implement finishing
+                filled.written
+            };
+            samples[written..].fill(0);
+            for (o, s) in out.iter_mut().zip(samples.iter()) {
+                *o = T::from_sample(*s);
             }
-        });
+        }
     }
 }
 

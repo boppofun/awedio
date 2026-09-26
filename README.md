@@ -37,7 +37,8 @@ controller.set_paused(true);
 - Modular design. Easy to add new backends, wrappers and decoders.
 - Very low overhead. For example, a Wav file with i16 samples with the same
   same sample rate as the output device will have samples sent to the backend
-  unchanged.
+  unchanged. Samples are produced in batches (`Sound::next_samples` fills a
+  buffer) so per sample overhead is minimal.
 - Only pay the performance cost of features if they are needed. For example
   pausability, volume adjustment, or controlling a sound after playback has
   started are all added to a Sound only as needed. This is done by wrapping

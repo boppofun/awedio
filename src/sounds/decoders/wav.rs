@@ -1,7 +1,6 @@
 use std::io::Read;
 
-use crate::sound::NextSample;
-use crate::Sound;
+use crate::{Filled, Sound, Stop};
 
 use hound::{SampleFormat, WavReader};
 
@@ -54,42 +53,44 @@ where
         self.sample_rate
     }
 
-    fn next_sample(&mut self) -> Result<NextSample, crate::Error> {
+    fn next_samples(&mut self, buf: &mut [i16]) -> Filled {
         let spec = self.reader.spec();
-        let maybe_sample = match (spec.sample_format, spec.bits_per_sample) {
-            (SampleFormat::Float, 32) => self
-                .reader
-                .samples()
-                .next()
-                .map(|value| value.map(f32_to_i16)),
-            (SampleFormat::Int, 8) => self
-                .reader
-                .samples()
-                .next()
-                .map(|value| value.map(i8_to_i16)),
-            (SampleFormat::Int, 16) => self.reader.samples().next(),
-            (SampleFormat::Int, 24) => self
-                .reader
-                .samples()
-                .next()
-                .map(|value| value.map(i24_to_i16)),
-            (SampleFormat::Int, 32) => self
-                .reader
-                .samples()
-                .next()
-                .map(|value| value.map(i32_to_i16)),
+        let ch = self.channel_count as usize;
+        match (spec.sample_format, spec.bits_per_sample) {
+            (SampleFormat::Float, 32) => fill(self.reader.samples(), buf, ch, f32_to_i16),
+            (SampleFormat::Int, 8) => fill(self.reader.samples(), buf, ch, i8_to_i16),
+            (SampleFormat::Int, 16) => fill(self.reader.samples(), buf, ch, |s: i16| s),
+            (SampleFormat::Int, 24) => fill(self.reader.samples(), buf, ch, i24_to_i16),
+            (SampleFormat::Int, 32) => fill(self.reader.samples(), buf, ch, i32_to_i16),
             (sample_format, bits_per_sample) => {
                 unimplemented!("wav spec: {:?}, {}", sample_format, bits_per_sample)
             }
-        };
-        match maybe_sample {
-            Some(Ok(sample)) => Ok(NextSample::Sample(sample)),
-            Some(Err(e)) => Err(e.into()),
-            None => Ok(NextSample::Finished),
         }
     }
 
     fn on_start_of_batch(&mut self) {}
+}
+
+/// Fill `buf` from `samples`. If `samples` stops part way through a frame, the
+/// samples of that partial frame are dropped.
+fn fill<T>(
+    mut samples: impl Iterator<Item = Result<T, hound::Error>>,
+    buf: &mut [i16],
+    channel_count: usize,
+    convert: impl Fn(T) -> i16,
+) -> Filled {
+    for (idx, out) in buf.iter_mut().enumerate() {
+        let stop = match samples.next() {
+            Some(Ok(sample)) => {
+                *out = convert(sample);
+                continue;
+            }
+            Some(Err(e)) => Stop::Error(e.into()),
+            None => Stop::Finished,
+        };
+        return Filled::stopped(idx - idx % channel_count, stop);
+    }
+    Filled::all(buf.len())
 }
 
 // Lossy

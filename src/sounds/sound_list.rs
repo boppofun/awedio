@@ -1,14 +1,13 @@
-use crate::sound::NextSample;
 use crate::sounds::wrappers::{AddSound, ClearSounds};
-use crate::Sound;
+use crate::{Filled, Sound, Stop};
 
 /// Play Sounds sequentially one after the other.
 ///
-/// Only after a Sound has returned `NextSample::Finished` will the next Sound
+/// Only after a Sound has returned `Stop::Finished` will the next Sound
 /// start playing.
 ///
 /// If an Error is returned from a Sound it is dropped and the error is
-/// propagated to the caller. Calling next_sound again would continue
+/// propagated to the caller. Calling next_samples again would continue
 /// with the next Sound in the list.
 pub struct SoundList {
     sounds: Vec<Box<dyn Sound>>,
@@ -106,36 +105,51 @@ impl Sound for SoundList {
         }
     }
 
-    fn next_sample(&mut self) -> Result<NextSample, crate::Error> {
-        let Some(next_sound) = self.sounds.first_mut() else {
-            return Ok(NextSample::Finished);
-        };
+    fn next_samples(&mut self, buf: &mut [i16]) -> Filled {
+        if self.sounds.is_empty() {
+            return Filled::stopped(0, Stop::Finished);
+        }
         if self.was_empty {
             self.was_empty = false;
-            return Ok(NextSample::MetadataChanged);
+            return Filled::stopped(0, Stop::MetadataChanged);
         }
-        let next_sample = match next_sound.next_sample() {
-            Ok(s) => s,
-            Err(e) => {
-                self.sounds.remove(0);
-                return Err(e);
-            }
-        };
-
-        let ret = match next_sample {
-            NextSample::Sample(_) | NextSample::MetadataChanged | NextSample::Paused => next_sample,
-            NextSample::Finished => {
-                self.sounds.remove(0);
-                if self.sounds.is_empty() {
-                    NextSample::Finished
-                } else {
-                    // The next sample might have different metadata. Instead of
-                    // normalizing here let downstream normalize.
-                    NextSample::MetadataChanged
+        let mut written = 0;
+        loop {
+            let Some(next_sound) = self.sounds.first_mut() else {
+                return Filled::stopped(written, Stop::Finished);
+            };
+            let filled = next_sound.next_samples(&mut buf[written..]);
+            written += filled.written;
+            match filled.stop {
+                None => return Filled::all(written),
+                Some(Stop::MetadataChanged) | Some(Stop::Paused) => {
+                    return Filled {
+                        written,
+                        stop: filled.stop,
+                    }
+                }
+                Some(Stop::Error(e)) => {
+                    self.sounds.remove(0);
+                    return Filled::stopped(written, Stop::Error(e));
+                }
+                Some(Stop::Finished) => {
+                    let channel_count = next_sound.channel_count();
+                    let sample_rate = next_sound.sample_rate();
+                    self.sounds.remove(0);
+                    let Some(next) = self.sounds.first() else {
+                        return Filled::stopped(written, Stop::Finished);
+                    };
+                    if next.channel_count() != channel_count || next.sample_rate() != sample_rate {
+                        // The next sound has different metadata. Instead of
+                        // normalizing here let downstream normalize.
+                        return Filled::stopped(written, Stop::MetadataChanged);
+                    }
+                    if written == buf.len() {
+                        return Filled::all(written);
+                    }
                 }
             }
-        };
-        Ok(ret)
+        }
     }
 }
 

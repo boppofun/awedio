@@ -1,4 +1,4 @@
-use crate::{NextSample, Sound};
+use crate::{Filled, Sound, Stop};
 
 type SoundGenerator = Box<dyn FnMut() -> Option<Box<dyn Sound>> + Send>;
 
@@ -6,9 +6,9 @@ type SoundGenerator = Box<dyn FnMut() -> Option<Box<dyn Sound>> + Send>;
 ///
 /// The generator function is called after each previously produced sound has
 /// returned finished. After `SoundsFromFn` returns None
-/// this sound returns Finished. If an Error is returned from next_sound
-/// that sound is dropped and the Error is returned. If next_sound is called
-/// again SoundsFromFn is called again.
+/// this sound returns Finished. If an Error is returned from the current sound
+/// that sound is dropped and the Error is returned. The generator is called
+/// again to produce the sound for the next call of next_samples.
 ///
 /// This can be used to create sounds that loop forever without storing all
 /// samples in memory.
@@ -74,40 +74,43 @@ impl Sound for SoundsFromFn {
         }
     }
 
-    fn next_sample(&mut self) -> Result<NextSample, crate::Error> {
+    fn next_samples(&mut self, buf: &mut [i16]) -> Filled {
+        let mut written = 0;
         loop {
             let Some(current) = &mut self.current else {
-                return Ok(NextSample::Finished);
+                return Filled::stopped(written, Stop::Finished);
             };
-            let sample = current.next_sample();
-            let sample = match sample {
-                Ok(s) => s,
-                Err(e) => {
+            let filled = current.next_samples(&mut buf[written..]);
+            written += filled.written;
+            match filled.stop {
+                None => return Filled::all(written),
+                Some(Stop::MetadataChanged) => {
+                    self.update_metadata();
+                    return Filled::stopped(written, Stop::MetadataChanged);
+                }
+                Some(Stop::Paused) => return Filled::stopped(written, Stop::Paused),
+                Some(Stop::Error(e)) => {
                     self.current = None;
                     self.current = (self.generator)();
                     self.update_metadata();
-                    return Err(e);
+                    return Filled::stopped(written, Stop::Error(e));
                 }
-            };
-            match sample {
-                NextSample::MetadataChanged => {
-                    self.update_metadata();
-                    return Ok(sample);
-                }
-                NextSample::Sample(_) | NextSample::Paused => return Ok(sample),
-                NextSample::Finished => {
+                Some(Stop::Finished) => {
                     let old_channel_count = self.current_channel_count;
                     let old_sample_rate = self.current_sample_rate;
                     self.current = None;
                     self.current = (self.generator)();
                     self.update_metadata();
                     if self.current.is_none() {
-                        return Ok(NextSample::Finished);
+                        return Filled::stopped(written, Stop::Finished);
                     }
-                    if old_sample_rate != self.sample_rate()
-                        || old_channel_count != self.channel_count()
+                    if old_sample_rate != self.current_sample_rate
+                        || old_channel_count != self.current_channel_count
                     {
-                        return Ok(NextSample::MetadataChanged);
+                        return Filled::stopped(written, Stop::MetadataChanged);
+                    }
+                    if written == buf.len() {
+                        return Filled::all(written);
                     }
                 }
             }

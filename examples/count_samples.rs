@@ -1,4 +1,4 @@
-use awedio::{NextSample, Sound};
+use awedio::{Sound, Stop};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let Some(file_path) = args() else {
@@ -9,25 +9,29 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut sound = awedio::sounds::open_file(file_path)?;
 
     let mut num_samples = 0;
+    let mut buf = vec![0; 1024 * sound.channel_count() as usize];
 
     loop {
-        match sound.next_sample() {
-            Ok(NextSample::Sample(_)) => num_samples += 1,
-            Ok(NextSample::Paused) => {
+        let filled = sound.next_samples(&mut buf);
+        num_samples += filled.written;
+        match filled.stop {
+            None => (),
+            Some(Stop::Paused) => {
                 println!("Encountered a Pause. Stopping.");
                 break;
             }
-            Ok(NextSample::Finished) => {
+            Some(Stop::Finished) => {
                 break;
             }
-            Ok(NextSample::MetadataChanged) => {
+            Some(Stop::MetadataChanged) => {
                 println!(
                     "Encountered MetadataChanged. New sample rate: {}, New channel count: {}",
                     sound.sample_rate(),
                     sound.channel_count()
                 );
+                buf = vec![0; 1024 * sound.channel_count() as usize];
             }
-            Err(e) => {
+            Some(Stop::Error(e)) => {
                 println!("Encountered error: {:?}", e);
                 break;
             }

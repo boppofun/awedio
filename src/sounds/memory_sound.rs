@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::{NextSample, Sound};
+use crate::{Filled, Sound, Stop};
 
 /// A Sound that stores all samples on the heap.
 ///
@@ -9,6 +9,8 @@ use crate::{NextSample, Sound};
 #[derive(Clone)]
 pub struct MemorySound {
     samples: Arc<Vec<i16>>,
+    /// Number of samples in `samples` that are part of complete frames.
+    len: usize,
     channel_count: u16,
     sample_rate: u32,
 
@@ -16,7 +18,7 @@ pub struct MemorySound {
     should_loop: bool,
 }
 
-/// A [MetadataChanged][NextSample::MetadataChanged] was returned while reading
+/// A [MetadataChanged][Stop::MetadataChanged] was returned while reading
 /// into a [MemorySound] which is not currently supported.
 #[derive(Debug)]
 pub struct UnsupportedMetadataChangeError {}
@@ -47,36 +49,31 @@ impl MemorySound {
         let channel_count = orig.channel_count();
         let sample_rate = orig.sample_rate();
 
-        let mut samples = Vec::new();
+        let mut samples: Vec<i16> = Vec::new();
+        let chunk_len = 1024 * channel_count as usize;
 
         loop {
-            let sample = orig.next_sample()?;
-            match sample {
-                crate::NextSample::Sample(s) => {
-                    samples.push(s);
-                }
-                crate::NextSample::MetadataChanged => {
+            let start = samples.len();
+            samples.resize(start + chunk_len, 0);
+            let filled = orig.next_samples(&mut samples[start..]);
+            samples.truncate(start + filled.written);
+            match filled.stop {
+                None => (),
+                Some(Stop::MetadataChanged) => {
                     if orig.channel_count() != channel_count || orig.sample_rate() != sample_rate {
                         return Err(crate::Error::IoError(std::io::Error::other(
                             UnsupportedMetadataChangeError {},
                         )));
                     }
-                    // Sometimes we see a MetadataChanged from a sound just to
-                    // ensure that channels stay in sync. Lets ensure that here
-                    // by ensuring that the next sample after MetadataChanged is
-                    // for the first channel.
-                    let channel_idx = samples.len() % channel_count as usize;
-                    if channel_idx != 0 {
-                        let outputs_to_stay_in_sync = channel_count as usize - channel_idx;
-                        // This should be rare so lets just output 0 for the filler samples.
-                        samples.extend(std::iter::repeat_n(0, outputs_to_stay_in_sync));
-                    }
                 }
-                crate::NextSample::Paused | crate::NextSample::Finished => break,
+                Some(Stop::Paused) | Some(Stop::Finished) => break,
+                Some(Stop::Error(e)) => return Err(e),
             }
         }
+        samples.shrink_to_fit();
 
         Ok(MemorySound {
+            len: samples.len(),
             samples: Arc::new(samples),
             channel_count,
             sample_rate,
@@ -88,14 +85,18 @@ impl MemorySound {
     /// Create memory sound from the raw data of samples.
     ///
     /// Samples should be in the same order as they will be returned from the
-    /// next_samples function (e.g. interleaved by channel).
+    /// next_samples function (e.g. interleaved by channel). If the number of
+    /// samples is not a multiple of `channel_count`, the samples of the last
+    /// incomplete frame are ignored.
     pub fn from_samples(
         samples: Arc<Vec<i16>>,
         channel_count: u16,
         sample_rate: u32,
     ) -> MemorySound {
+        let len = samples.len() - samples.len() % channel_count as usize;
         MemorySound {
             samples,
+            len,
             channel_count,
             sample_rate,
             next_sample: 0,
@@ -119,16 +120,24 @@ impl Sound for MemorySound {
         self.sample_rate
     }
 
-    fn next_sample(&mut self) -> Result<NextSample, crate::Error> {
-        if let Some(sample) = self.samples.get(self.next_sample) {
-            self.next_sample += 1;
-            Ok(NextSample::Sample(*sample))
-        } else if self.should_loop && !self.samples.is_empty() {
-            self.next_sample = 0;
-            self.next_sample()
-        } else {
-            Ok(NextSample::Finished)
+    fn next_samples(&mut self, buf: &mut [i16]) -> Filled {
+        let samples = &self.samples[..self.len];
+        let mut written = 0;
+        while written < buf.len() {
+            if self.next_sample >= samples.len() {
+                if self.should_loop && !samples.is_empty() {
+                    self.next_sample = 0;
+                } else {
+                    return Filled::stopped(written, Stop::Finished);
+                }
+            }
+            let to_copy = (buf.len() - written).min(samples.len() - self.next_sample);
+            buf[written..written + to_copy]
+                .copy_from_slice(&samples[self.next_sample..self.next_sample + to_copy]);
+            written += to_copy;
+            self.next_sample += to_copy;
         }
+        Filled::all(written)
     }
 
     fn on_start_of_batch(&mut self) {}
@@ -136,7 +145,7 @@ impl Sound for MemorySound {
 
 impl AsRef<[i16]> for MemorySound {
     fn as_ref(&self) -> &[i16] {
-        &self.samples
+        &self.samples[..self.len]
     }
 }
 

@@ -30,10 +30,7 @@ where
     ///
     /// See `set_volume`.
     pub fn new(inner: S) -> Self {
-        AdjustableVolume {
-            inner,
-            volume_adjustment: 1.0,
-        }
+        Self::new_with_volume(inner, 1.0)
     }
 
     /// Wrap `inner` such that its volume can be adjusted and set an initial
@@ -75,19 +72,16 @@ where
         self.inner.sample_rate()
     }
 
-    fn next_sample(&mut self) -> Result<crate::NextSample, crate::Error> {
-        let next = self.inner.next_sample()?;
-        Ok(match next {
-            crate::NextSample::Sample(s) => {
-                // Since Rust 1.45, the `as` keyword performs a *saturating cast*
-                // when casting from float to int.
-                let adjusted = (s as f32 * self.volume_adjustment) as i16;
-                crate::NextSample::Sample(adjusted)
-            }
-            crate::NextSample::MetadataChanged
-            | crate::NextSample::Paused
-            | crate::NextSample::Finished => next,
-        })
+    #[inline]
+    fn next_samples(&mut self, buf: &mut [i16]) -> crate::Filled {
+        let filled = self.inner.next_samples(buf);
+        let volume_adjustment = self.volume_adjustment;
+        for s in &mut buf[..filled.written] {
+            // Since Rust 1.45, the `as` keyword performs a *saturating cast*
+            // when casting from float to int.
+            *s = (*s as f32 * volume_adjustment) as i16;
+        }
+        filled
     }
 
     fn on_start_of_batch(&mut self) {

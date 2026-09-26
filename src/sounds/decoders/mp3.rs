@@ -1,4 +1,4 @@
-use crate::Sound;
+use crate::{Filled, Sound, Stop};
 use std::io::Read;
 
 // Enough for a single frame (maybe not for free format)
@@ -52,7 +52,7 @@ where
             decoder.metadata_changed = false;
         };
         // If there is an error reading we will let it happen again on the first
-        // next_sample call
+        // next_samples call
         decoder
     }
 }
@@ -69,22 +69,30 @@ where
         self.sample_rate
     }
 
-    fn next_sample(&mut self) -> Result<crate::NextSample, crate::Error> {
-        if self.metadata_changed {
-            self.metadata_changed = false;
-            return Ok(crate::NextSample::MetadataChanged);
-        }
-        if self.output_buffer_next_out_idx >= self.output_buffer_data_len {
+    /// An IoError from the reader (e.g. WouldBlock) is returned as a
+    /// Stop::Error and decoding can continue by calling next_samples again.
+    fn next_samples(&mut self, buf: &mut [i16]) -> Filled {
+        let mut written = 0;
+        loop {
+            if self.metadata_changed {
+                self.metadata_changed = false;
+                return Filled::stopped(written, Stop::MetadataChanged);
+            }
+            let available =
+                &self.output_buffer[self.output_buffer_next_out_idx..self.output_buffer_data_len];
+            let to_copy = available.len().min(buf.len() - written);
+            buf[written..written + to_copy].copy_from_slice(&available[..to_copy]);
+            written += to_copy;
+            self.output_buffer_next_out_idx += to_copy;
+            if written == buf.len() {
+                return Filled::all(written);
+            }
             match self.load_next_frame() {
                 Ok(true) => (),
-                Ok(false) => return Ok(crate::NextSample::Finished),
-                Err(e) => return Err(e.into()),
+                Ok(false) => return Filled::stopped(written, Stop::Finished),
+                Err(e) => return Filled::stopped(written, Stop::Error(e.into())),
             }
         }
-        let to_return =
-            crate::NextSample::Sample(self.output_buffer[self.output_buffer_next_out_idx]);
-        self.output_buffer_next_out_idx += 1;
-        Ok(to_return)
     }
 
     fn on_start_of_batch(&mut self) {}

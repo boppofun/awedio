@@ -25,8 +25,9 @@ impl crate::Sound for Silence {
         self.sample_rate
     }
 
-    fn next_sample(&mut self) -> Result<crate::NextSample, crate::Error> {
-        Ok(crate::NextSample::Sample(0))
+    fn next_samples(&mut self, buf: &mut [i16]) -> crate::Filled {
+        buf.fill(0);
+        crate::Filled::all(buf.len())
     }
 
     fn on_start_of_batch(&mut self) {}

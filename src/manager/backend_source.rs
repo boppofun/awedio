@@ -13,22 +13,22 @@ use crate::Sound;
 /// * The sound must output the sample rate and channel count given in the last
 ///   call to set_output_channel_count_and_sample_rate. The backend is required
 ///   to call set_output_channel_count_and_sample_rate before any samples are
-///   pulled via next_sample and may call it again.
+///   pulled via next_samples and may call it again.
 /// * The BackendSource is not allowed to return MetadataChanged unless a call
 ///   to set_output_channel_count_and_sample_rate has occurred since the last
 ///   MetadataChanged.
-/// * BackendSource::next_sample is not allowed to return Err.
+/// * BackendSource::next_samples is not allowed to return Stop::Error.
 ///
 /// The backend is responsible for:
 ///
 ///  1. storing the BackendSource
 ///  2. calling BackendSource::set_output_channel_count_and_sample_rate()
-///  3. periodically calling BackendSource::on_start_of_batch() followed by some
-///     number of renderer.next_sample() calls (normally enough to fill some
+///  3. periodically calling BackendSource::on_start_of_batch() followed by
+///     one or more renderer.next_samples() calls (normally enough to fill some
 ///     number of milliseconds of an output buffer).
 pub trait BackendSource: Sound {
     /// Set the output channel count and sample rate that the backend source
-    /// should provide to the backend via calls to Sound::next_sample.
+    /// should provide to the backend via calls to Sound::next_samples.
     fn set_output_channel_count_and_sample_rate(
         &mut self,
         output_channel_count: u16,

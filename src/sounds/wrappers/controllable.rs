@@ -59,25 +59,20 @@ where
         self.inner.sample_rate()
     }
 
-    fn next_sample(&mut self) -> Result<crate::NextSample, crate::Error> {
-        let next = self.inner.next_sample()?;
-        match next {
-            crate::NextSample::Sample(_)
-            | crate::NextSample::MetadataChanged
-            | crate::NextSample::Paused => Ok(next),
-            // Since this is controllable we might add another sound later.
-            // Ideally we would do this only if the inner sound can have sounds
-            // added to it but I don't think we can branch on S: AddSound here.
-            // We could add a Sound::is_addable but lets avoid that until we see
-            // a reason why it is necessary.
-            crate::NextSample::Finished => {
-                if self.finished {
-                    Ok(crate::NextSample::Finished)
-                } else {
-                    Ok(crate::NextSample::Paused)
-                }
+    #[inline]
+    fn next_samples(&mut self, buf: &mut [i16]) -> crate::Filled {
+        let mut filled = self.inner.next_samples(buf);
+        // Since this is controllable we might add another sound later.
+        // Ideally we would do this only if the inner sound can have sounds
+        // added to it but I don't think we can branch on S: AddSound here.
+        // We could add a Sound::is_addable but lets avoid that until we see
+        // a reason why it is necessary.
+        if let Some(crate::Stop::Finished) = filled.stop {
+            if !self.finished {
+                filled.stop = Some(crate::Stop::Paused);
             }
         }
+        filled
     }
 
     fn on_start_of_batch(&mut self) {
@@ -210,3 +205,7 @@ where
         self.send_command(Box::new(move |s: &mut S| s.set_volume(volume)));
     }
 }
+
+#[cfg(test)]
+#[path = "./tests/controllable.rs"]
+mod tests;

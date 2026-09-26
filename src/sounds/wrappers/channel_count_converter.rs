@@ -1,4 +1,4 @@
-use crate::{NextSample, Sound};
+use crate::{Filled, Sound, Stop};
 
 use super::Wrapper;
 
@@ -8,11 +8,14 @@ pub struct ChannelCountConverter<S: Sound> {
     inner: S,
     to_count: u16,
     converter_type: ConverterType,
+    /// Samples from inner when inner has more channels than the output.
+    input_buffer: Vec<i16>,
 }
 
+#[derive(Clone, Copy)]
 enum ConverterType {
     PassThrough,
-    MonoToStereo { last_sample: Option<i16> },
+    MonoToStereo,
     StereoToMono,
 }
 
@@ -28,6 +31,7 @@ where
             inner,
             to_count,
             converter_type,
+            input_buffer: Vec::new(),
         }
     }
 
@@ -35,7 +39,7 @@ where
         if from_count == to_count {
             ConverterType::PassThrough
         } else if from_count == 1 && to_count == 2 {
-            ConverterType::MonoToStereo { last_sample: None }
+            ConverterType::MonoToStereo
         } else if from_count == 2 && to_count == 1 {
             ConverterType::StereoToMono
         } else {
@@ -51,17 +55,14 @@ where
 
     // We could save the metadata of the inner Source and only return MetadataChange
     // if the metadata change is something we can't handle (i.e. a Rate Change).
-    fn handle_possible_channel_count_change(&mut self, next: NextSample) {
-        if let NextSample::MetadataChanged = next {
+    fn handle_possible_channel_count_change(&mut self, filled: &Filled) {
+        if let Some(Stop::MetadataChanged) = filled.stop {
             let from_count = self.inner.channel_count();
             self.converter_type = Self::get_type(from_count, self.to_count);
         }
     }
 
     /// Unwrap the inner Sound.
-    ///
-    /// It is guaranteed that the inner Sound is at the start of a Frame.
-    /// (i.e. the inner sound has not been partially incremented inside a frame)
     pub fn into_inner(self) -> S {
         self.inner
     }
@@ -79,56 +80,47 @@ where
         self.inner.sample_rate()
     }
 
-    fn next_sample(&mut self) -> Result<NextSample, crate::Error> {
-        match &mut self.converter_type {
-            ConverterType::PassThrough => {
-                let next = self.inner.next_sample()?;
-                self.handle_possible_channel_count_change(next);
-                Ok(next)
-            }
-            ConverterType::MonoToStereo {
-                ref mut last_sample,
-            } => {
-                if let Some(sample) = last_sample {
-                    let sample = *sample;
-                    *last_sample = None;
-                    Ok(NextSample::Sample(sample))
-                } else {
-                    let next = self.inner.next_sample()?;
-                    match next {
-                        NextSample::Sample(sample) => {
-                            *last_sample = Some(sample);
-                        }
-                        NextSample::MetadataChanged => {} // handled below
-                        NextSample::Paused | NextSample::Finished => {} // Just pass through
-                    }
-                    self.handle_possible_channel_count_change(next);
-                    Ok(next)
+    fn next_samples(&mut self, buf: &mut [i16]) -> Filled {
+        let filled = match self.converter_type {
+            ConverterType::PassThrough => self.inner.next_samples(buf),
+            ConverterType::MonoToStereo => {
+                let num_frames = buf.len() / 2;
+                let filled = self.inner.next_samples(&mut buf[..num_frames]);
+                let written = filled.written;
+                // Expand in place starting from the end so we do not
+                // overwrite samples we have not yet copied.
+                for i in (0..written).rev() {
+                    let sample = buf[i];
+                    buf[i * 2] = sample;
+                    buf[i * 2 + 1] = sample;
+                }
+                Filled {
+                    written: written * 2,
+                    stop: filled.stop,
                 }
             }
             ConverterType::StereoToMono => {
-                let next1 = self.inner.next_sample()?;
-                self.handle_possible_channel_count_change(next1);
-                let sample1 = match next1 {
-                    NextSample::Sample(s) => s,
-                    NextSample::MetadataChanged | NextSample::Paused | NextSample::Finished => {
-                        return Ok(next1);
-                    }
-                };
-                let next2 = self.inner.next_sample()?;
-                self.handle_possible_channel_count_change(next2);
-                let sample2 = match next2 {
-                    NextSample::Sample(s) => s,
-                    NextSample::MetadataChanged | NextSample::Paused | NextSample::Finished => {
-                        return Ok(next2);
-                    }
-                };
-
-                // Get the average of the two
-                let avg = ((sample1 as i32 + sample2 as i32) / 2) as i16;
-                Ok(NextSample::Sample(avg))
+                let input_len = buf.len() * 2;
+                if self.input_buffer.len() < input_len {
+                    self.input_buffer.resize(input_len, 0);
+                }
+                let filled = self.inner.next_samples(&mut self.input_buffer[..input_len]);
+                let written = filled.written / 2;
+                for (out, frame) in buf[..written]
+                    .iter_mut()
+                    .zip(self.input_buffer[..filled.written].as_chunks::<2>().0)
+                {
+                    // Get the average of the two
+                    *out = ((frame[0] as i32 + frame[1] as i32) / 2) as i16;
+                }
+                Filled {
+                    written,
+                    stop: filled.stop,
+                }
             }
-        }
+        };
+        self.handle_possible_channel_count_change(&filled);
+        filled
     }
 
     fn on_start_of_batch(&mut self) {
@@ -151,3 +143,7 @@ impl<S: Sound> Wrapper for ChannelCountConverter<S> {
         self.inner
     }
 }
+
+#[cfg(test)]
+#[path = "./tests/channel_count_converter.rs"]
+mod tests;

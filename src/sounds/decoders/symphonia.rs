@@ -1,5 +1,4 @@
-use crate::NextSample;
-use crate::Sound;
+use crate::{Filled, Sound, Stop};
 use symphonia::core::audio::conv::FromSample;
 use symphonia::core::audio::sample::Sample;
 use symphonia::core::audio::{Audio, AudioBuffer, Channels, GenericAudioBufferRef};
@@ -21,8 +20,8 @@ pub struct SymphoniaDecoder {
 
     channels: Channels,
     track_id: u32,
-    next_channel_idx: u16,
-    next_sample_idx: usize,
+    /// The next frame of the last decoded buffer to output.
+    next_frame_idx: usize,
 }
 
 impl SymphoniaDecoder {
@@ -71,8 +70,7 @@ impl SymphoniaDecoder {
             format,
             channels: Channels::None,
             track_id,
-            next_channel_idx: 0,
-            next_sample_idx: 0,
+            next_frame_idx: 0,
         };
         // Ignore metadata changed since no one has seen the old values
         let _ = decoder.decode_next_packet();
@@ -89,24 +87,34 @@ impl Sound for SymphoniaDecoder {
         self.sample_rate
     }
 
-    fn next_sample(&mut self) -> Result<NextSample, crate::Error> {
-        if self.next_channel_idx >= self.channels.count().try_into().unwrap() {
-            self.next_channel_idx = 0;
-            self.next_sample_idx += 1;
+    fn next_samples(&mut self, buf: &mut [i16]) -> Filled {
+        let channel_count = self.channels.count();
+        if channel_count == 0 {
+            return Filled::stopped(0, Stop::Finished);
         }
-        let mut buf_ref = self.decoder.last_decoded();
-        if self.next_sample_idx >= buf_ref.frames() {
+        let mut written = 0;
+        loop {
+            let buf_ref = self.decoder.last_decoded();
+            let frames_available = buf_ref.frames().saturating_sub(self.next_frame_idx);
+            let num_frames = frames_available.min((buf.len() - written) / channel_count);
+            copy_interleaved_from_ref(
+                &buf_ref,
+                self.next_frame_idx,
+                &mut buf[written..written + num_frames * channel_count],
+                channel_count,
+            );
+            self.next_frame_idx += num_frames;
+            written += num_frames * channel_count;
+            if written == buf.len() {
+                return Filled::all(written);
+            }
             match self.decode_next_packet() {
-                Ok(Some(true)) => return Ok(NextSample::MetadataChanged),
+                Ok(Some(true)) => return Filled::stopped(written, Stop::MetadataChanged),
                 Ok(Some(false)) => (),
-                Ok(None) => return Ok(NextSample::Finished),
-                Err(e) => return Err(e.into()),
+                Ok(None) => return Filled::stopped(written, Stop::Finished),
+                Err(e) => return Filled::stopped(written, Stop::Error(e.into())),
             };
-            buf_ref = self.decoder.last_decoded();
         }
-        let sample = extract_sample_from_ref(&buf_ref, self.next_channel_idx, self.next_sample_idx);
-        self.next_channel_idx += 1;
-        Ok(NextSample::Sample(sample))
     }
 
     fn on_start_of_batch(&mut self) {}
@@ -141,8 +149,7 @@ impl SymphoniaDecoder {
                 Err(e) => return Err(e),
             };
 
-            self.next_channel_idx = 0;
-            self.next_sample_idx = 0;
+            self.next_frame_idx = 0;
             let mut metadata_changed = false;
             if buf_ref.spec().channels() != &self.channels {
                 self.channels = buf_ref.spec().channels().clone();
@@ -157,34 +164,41 @@ impl SymphoniaDecoder {
     }
 }
 
-pub fn extract_sample_from_ref(
+fn copy_interleaved_from_ref(
     buffer: &GenericAudioBufferRef,
-    channel_idx: u16,
-    sample_idx: usize,
-) -> i16 {
+    first_frame: usize,
+    out: &mut [i16],
+    channel_count: usize,
+) {
     match buffer {
-        GenericAudioBufferRef::U8(buffer) => extract_sample(buffer, channel_idx, sample_idx),
-        GenericAudioBufferRef::U16(buffer) => extract_sample(buffer, channel_idx, sample_idx),
-        GenericAudioBufferRef::U24(buffer) => extract_sample(buffer, channel_idx, sample_idx),
-        GenericAudioBufferRef::U32(buffer) => extract_sample(buffer, channel_idx, sample_idx),
-        GenericAudioBufferRef::S8(buffer) => extract_sample(buffer, channel_idx, sample_idx),
-        GenericAudioBufferRef::S16(buffer) => extract_sample(buffer, channel_idx, sample_idx),
-        GenericAudioBufferRef::S24(buffer) => extract_sample(buffer, channel_idx, sample_idx),
-        GenericAudioBufferRef::S32(buffer) => extract_sample(buffer, channel_idx, sample_idx),
-        GenericAudioBufferRef::F32(buffer) => extract_sample(buffer, channel_idx, sample_idx),
-        GenericAudioBufferRef::F64(buffer) => extract_sample(buffer, channel_idx, sample_idx),
+        GenericAudioBufferRef::U8(b) => copy_interleaved(b, first_frame, out, channel_count),
+        GenericAudioBufferRef::U16(b) => copy_interleaved(b, first_frame, out, channel_count),
+        GenericAudioBufferRef::U24(b) => copy_interleaved(b, first_frame, out, channel_count),
+        GenericAudioBufferRef::U32(b) => copy_interleaved(b, first_frame, out, channel_count),
+        GenericAudioBufferRef::S8(b) => copy_interleaved(b, first_frame, out, channel_count),
+        GenericAudioBufferRef::S16(b) => copy_interleaved(b, first_frame, out, channel_count),
+        GenericAudioBufferRef::S24(b) => copy_interleaved(b, first_frame, out, channel_count),
+        GenericAudioBufferRef::S32(b) => copy_interleaved(b, first_frame, out, channel_count),
+        GenericAudioBufferRef::F32(b) => copy_interleaved(b, first_frame, out, channel_count),
+        GenericAudioBufferRef::F64(b) => copy_interleaved(b, first_frame, out, channel_count),
     }
 }
 
-pub fn extract_sample<S: Sample>(
+fn copy_interleaved<S: Sample>(
     buffer: &AudioBuffer<S>,
-    channel_idx: u16,
-    sample_idx: usize,
-) -> i16
-where
+    first_frame: usize,
+    out: &mut [i16],
+    channel_count: usize,
+) where
     i16: FromSample<S>,
 {
-    FromSample::from_sample(buffer.plane(channel_idx as usize).unwrap()[sample_idx])
+    let num_frames = out.len() / channel_count;
+    for channel_idx in 0..channel_count {
+        let plane = &buffer.plane(channel_idx).unwrap()[first_frame..first_frame + num_frames];
+        for (frame_idx, sample) in plane.iter().enumerate() {
+            out[frame_idx * channel_count + channel_idx] = FromSample::from_sample(*sample);
+        }
+    }
 }
 
 impl From<Error> for crate::Error {

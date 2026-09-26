@@ -2,7 +2,6 @@
 //! uses for convenience.
 
 use super::Wrapper;
-use crate::NextSample;
 use crate::Sound;
 pub use tokio::sync::oneshot;
 
@@ -45,16 +44,17 @@ where
         self.inner.sample_rate()
     }
 
-    fn next_sample(&mut self) -> Result<NextSample, crate::Error> {
-        let next = self.inner.next_sample()?;
-        if let NextSample::Finished = next {
+    #[inline]
+    fn next_samples(&mut self, buf: &mut [i16]) -> crate::Filled {
+        let filled = self.inner.next_samples(buf);
+        if let Some(crate::Stop::Finished) = filled.stop {
             if let Some(sender) = self.sender.take() {
                 // If the consumer dropped their receiver because they don't need it anymore its
                 // not an error.
                 let _res = sender.send(());
             }
         }
-        Ok(next)
+        filled
     }
 
     fn on_start_of_batch(&mut self) {
