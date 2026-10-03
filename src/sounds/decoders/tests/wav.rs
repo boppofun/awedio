@@ -103,3 +103,19 @@ fn zero_sample_rate_is_error() {
     let wav = extensible_wav(1, 0, 16, 16, false, &[0; 4]);
     assert!(WavDecoder::new(std::io::Cursor::new(wav)).is_err());
 }
+
+#[test]
+fn truncated_file_finishes() {
+    // Cut part way through a sample.
+    let truncated = &SINE_WAVE_FILE[..SINE_WAVE_FILE.len() - 101];
+    let mut decoder = WavDecoder::new(std::io::Cursor::new(truncated)).unwrap();
+    let mut buf = vec![0; 10000];
+    let filled = decoder.next_samples(&mut buf);
+    assert!(matches!(filled.stop, Some(Stop::Finished)));
+    assert_eq!(filled.written, 4411 - 51);
+
+    let mut full = WavDecoder::new(std::io::Cursor::new(SINE_WAVE_FILE)).unwrap();
+    let mut full_buf = vec![0; 10000];
+    let _ = full.next_samples(&mut full_buf);
+    assert_eq!(&buf[..filled.written], &full_buf[..filled.written]);
+}
