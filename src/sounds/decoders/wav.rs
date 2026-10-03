@@ -1,4 +1,8 @@
 use std::io::Read;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 
 use crate::{Filled, Sound, Stop};
 
@@ -7,11 +11,18 @@ use hound::{SampleFormat, WavReader};
 // Originally based off Decoder from Rodio.
 
 /// Decoder for the WAV format.
+///
+/// If the data ends before all samples of the header have been read (e.g. a
+/// truncated file), the samples read so far are returned followed by
+/// Finished.
 pub struct WavDecoder<R>
 where
     R: Read + Send,
 {
-    reader: WavReader<R>,
+    reader: WavReader<EofTracker<R>>,
+    /// Shared with the EofTracker since WavReader does not give access to
+    /// its reader.
+    reached_eof: Arc<AtomicBool>,
     sample_rate: u32,
     channel_count: u16,
 }
@@ -25,7 +36,11 @@ where
     /// Returns an error if the sample format is not supported or the sample
     /// rate is 0.
     pub fn new(data: R) -> Result<WavDecoder<R>, hound::Error> {
-        let reader = WavReader::new(data)?;
+        let reached_eof = Arc::new(AtomicBool::new(false));
+        let reader = WavReader::new(EofTracker {
+            inner: data,
+            reached_eof: reached_eof.clone(),
+        })?;
         let spec = reader.spec();
         if !is_supported(spec.sample_format, spec.bits_per_sample) {
             return Err(hound::Error::Unsupported);
@@ -39,6 +54,7 @@ where
 
         Ok(WavDecoder {
             reader,
+            reached_eof,
             sample_rate,
             channel_count,
         })
@@ -46,7 +62,25 @@ where
 
     /// Return the wrapped Reader
     pub fn into_inner(self) -> R {
-        self.reader.into_inner()
+        self.reader.into_inner().inner
+    }
+}
+
+/// Remembers if the end of `inner` was reached. hound returns an error of kind
+/// Other instead of UnexpectedEof if data ends part way through so this is used
+/// to know that a read error was caused by reaching the end.
+struct EofTracker<R> {
+    inner: R,
+    reached_eof: Arc<AtomicBool>,
+}
+
+impl<R: Read> Read for EofTracker<R> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let n = self.inner.read(buf)?;
+        if n == 0 && !buf.is_empty() {
+            self.reached_eof.store(true, Ordering::Relaxed);
+        }
+        Ok(n)
     }
 }
 
@@ -65,7 +99,7 @@ where
     fn next_samples(&mut self, buf: &mut [i16]) -> Filled {
         let spec = self.reader.spec();
         let ch = self.channel_count as usize;
-        match (spec.sample_format, spec.bits_per_sample) {
+        let mut filled = match (spec.sample_format, spec.bits_per_sample) {
             (SampleFormat::Float, 32) => fill(self.reader.samples(), buf, ch, f32_to_i16),
             (SampleFormat::Int, 8) => fill(self.reader.samples(), buf, ch, i8_to_i16),
             (SampleFormat::Int, 16) => fill(self.reader.samples(), buf, ch, |s: i16| s),
@@ -73,7 +107,12 @@ where
             (SampleFormat::Int, 32) => fill(self.reader.samples(), buf, ch, i32_to_i16),
             // Checked in new
             _ => Filled::stopped(0, Stop::Error(hound::Error::Unsupported.into())),
+        };
+        if matches!(filled.stop, Some(Stop::Error(_))) && self.reached_eof.load(Ordering::Relaxed) {
+            // The data is shorter than the header claims. Treat it as the end.
+            filled.stop = Some(Stop::Finished);
         }
+        filled
     }
 
     fn on_start_of_batch(&mut self) {}

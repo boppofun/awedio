@@ -3,6 +3,10 @@ use qoaudio::{DecodeError, QoaDecoder as RawQoaDecoder};
 use std::io::Read;
 
 /// Decoder for the [QOA](https://qoaformat.org/) format.
+///
+/// If the data ends part way through a frame (e.g. a truncated file), the
+/// samples decoded so far are returned followed by Finished. Samples decoded
+/// by the call of next_samples that reached the end might be dropped.
 pub struct QoaDecoder<R>
 where
     R: Read + Send,
@@ -64,7 +68,7 @@ where
                     written += n;
                     continue;
                 }
-                Err(e) => return Filled::stopped(written, Stop::Error(e.into())),
+                Err(e) => return Filled::stopped(written, stop_for_error(e)),
             }
             // The current frame is done.
             match self.raw_decoder.next_frame() {
@@ -78,13 +82,21 @@ where
                         return Filled::stopped(written, Stop::MetadataChanged);
                     }
                 }
-                Err(e) => return Filled::stopped(written, Stop::Error(e.into())),
+                Err(e) => return Filled::stopped(written, stop_for_error(e)),
             }
         }
         Filled::all(written)
     }
 
     fn on_start_of_batch(&mut self) {}
+}
+
+/// Treat data ending part way through a frame as the end of the sound.
+fn stop_for_error(e: DecodeError) -> Stop {
+    match e {
+        DecodeError::IoError(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => Stop::Finished,
+        e => Stop::Error(e.into()),
+    }
 }
 
 impl From<DecodeError> for crate::Error {
