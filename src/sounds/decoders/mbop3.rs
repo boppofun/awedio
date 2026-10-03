@@ -139,15 +139,18 @@ where
         }
     }
 
+    /// Fill the input buffer until it is full or the end of the reader is
+    /// reached. A single read might return fewer bytes than a frame.
     fn fill_input_buffer(&mut self) -> std::io::Result<()> {
-        if self.input_buffer_data_len == self.input_buffer.len() {
-            return Ok(());
+        while self.input_buffer_data_len < self.input_buffer.len() {
+            let read_to: &mut [u8] = &mut self.input_buffer[self.input_buffer_data_len..];
+            match self.reader.read(read_to) {
+                Ok(0) => break,
+                Ok(num_read) => self.input_buffer_data_len += num_read,
+                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => (),
+                Err(e) => return Err(e),
+            }
         }
-        let read_to: &mut [u8] = &mut self.input_buffer[self.input_buffer_data_len..];
-        assert!(!read_to.is_empty());
-
-        let num_read = self.reader.read(read_to)?;
-        self.input_buffer_data_len += num_read;
         Ok(())
     }
 }
