@@ -26,6 +26,38 @@ fn stereo_to_mono() {
 }
 
 #[test]
+fn many_to_mono() {
+    let samples = vec![0, 10, 20, 30, 100, 200, 300, 400];
+    let inner = crate::sounds::MemorySound::from_samples(std::sync::Arc::new(samples), 4, 1000);
+    let mut sound = ChannelCountConverter::new(inner, 1).by_sample();
+    let mut buf = [0; 4];
+    let filled = sound.next_samples(&mut buf);
+    assert_eq!(filled.written, 2);
+    assert!(matches!(filled.stop, Some(Stop::Finished)));
+    assert_eq!(&buf[..2], &[15, 250]);
+}
+
+#[test]
+fn many_to_stereo() {
+    let samples = vec![1, 2, 3, 4, 5, 6];
+    let inner = crate::sounds::MemorySound::from_samples(std::sync::Arc::new(samples), 3, 1000);
+    let mut sound = ChannelCountConverter::new(inner, 2).by_sample();
+    let mut buf = [0; 6];
+    let filled = sound.next_samples(&mut buf);
+    assert_eq!(filled.written, 4);
+    assert!(matches!(filled.stop, Some(Stop::Finished)));
+    assert_eq!(&buf[..4], &[1, 2, 4, 5]);
+}
+
+#[test]
+fn stereo_to_many() {
+    let mut sound = ChannelCountConverter::new(Sawtooth::new(2, 1000), 3).by_sample();
+    let mut buf = [0; 6];
+    assert!(sound.next_samples(&mut buf).stop.is_none());
+    assert_eq!(buf, [0, 0, 0, 1, 1, 1]);
+}
+
+#[test]
 fn channel_count_change_of_inner() {
     let mut inner = crate::tests::ConstantValueSound::new(7);
     inner.set_channel_count(2);
@@ -34,6 +66,10 @@ fn channel_count_change_of_inner() {
     let mut sound = ChannelCountConverter::new(inner, 2).by_sample();
     assert_eq!(sound.next_frame().unwrap(), vec![7, 7]);
     sound.inner_mut().inner_mut().set_channel_count(1);
+    assert!(matches!(sound.next_frame(), Err(Stop::MetadataChanged)));
+    assert_eq!(sound.next_frame().unwrap(), vec![7, 7]);
+    // Previously panicked with todo!()
+    sound.inner_mut().inner_mut().set_channel_count(6);
     assert!(matches!(sound.next_frame(), Err(Stop::MetadataChanged)));
     assert_eq!(sound.next_frame().unwrap(), vec![7, 7]);
 }
@@ -46,6 +82,10 @@ fn fill_size_independent() {
     );
     crate::tests::assert_fill_size_independent(
         || Box::new(ChannelCountConverter::new(Sawtooth::new(2, 1000), 1)),
+        3000,
+    );
+    crate::tests::assert_fill_size_independent(
+        || Box::new(ChannelCountConverter::new(Sawtooth::new(5, 1000), 2)),
         3000,
     );
 }
