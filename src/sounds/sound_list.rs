@@ -6,9 +6,9 @@ use crate::{Filled, Sound, Stop};
 /// Only after a Sound has returned `Stop::Finished` will the next Sound
 /// start playing.
 ///
-/// If an Error is returned from a Sound it is dropped and the error is
-/// propagated to the caller. Calling next_samples again would continue
-/// with the next Sound in the list.
+/// If an Error is returned from a Sound, the error is logged and the Sound
+/// is dropped. The next Sound in the list is played as if the Sound had
+/// Finished. SoundList never returns an Error.
 pub struct SoundList {
     sounds: Vec<Box<dyn Sound>>,
     was_empty: bool,
@@ -128,11 +128,10 @@ impl Sound for SoundList {
                         stop: filled.stop,
                     }
                 }
-                Some(Stop::Error(e)) => {
-                    self.sounds.remove(0);
-                    return Filled::stopped(written, Stop::Error(e));
-                }
-                Some(Stop::Finished) => {
+                Some(stop @ (Stop::Error(_) | Stop::Finished)) => {
+                    if let Stop::Error(e) = stop {
+                        log::error!("skipping sound in SoundList which returned error: {}", e);
+                    }
                     let channel_count = next_sound.channel_count();
                     let sample_rate = next_sound.sample_rate();
                     self.sounds.remove(0);
