@@ -58,3 +58,36 @@ fn fill_size_independent() {
         10000,
     );
 }
+
+/// Returns at most 100 bytes per read and every other read is Interrupted.
+struct ShortReader {
+    inner: std::io::Cursor<&'static [u8]>,
+    interrupt: bool,
+}
+
+impl std::io::Read for ShortReader {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        self.interrupt = !self.interrupt;
+        if self.interrupt {
+            return Err(std::io::ErrorKind::Interrupted.into());
+        }
+        let len = buf.len().min(100);
+        self.inner.read(&mut buf[..len])
+    }
+}
+
+#[test]
+fn short_reads() {
+    let (expected, expected_stops) = crate::tests::collect(
+        &mut Mbop3Decoder::new(std::io::Cursor::new(SINE_WAVE_FILE)),
+        10000,
+        1000,
+    );
+    let mut decoder = Mbop3Decoder::new(ShortReader {
+        inner: std::io::Cursor::new(SINE_WAVE_FILE),
+        interrupt: false,
+    });
+    let (samples, stops) = crate::tests::collect(&mut decoder, 10000, 1000);
+    assert_eq!(stops, expected_stops);
+    assert_eq!(samples, expected);
+}
