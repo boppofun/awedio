@@ -57,6 +57,66 @@ fn fills_across_sounds_with_same_metadata() {
     assert_eq!(buf[0], 6);
 }
 
+/// Returns `remaining` samples of value 7 and then an error.
+struct ErrorAfter {
+    remaining: usize,
+}
+
+impl Sound for ErrorAfter {
+    fn channel_count(&self) -> u16 {
+        1
+    }
+
+    fn sample_rate(&self) -> u32 {
+        1000
+    }
+
+    fn next_samples(&mut self, buf: &mut [i16]) -> crate::Filled {
+        let n = buf.len().min(self.remaining);
+        buf[..n].fill(7);
+        self.remaining -= n;
+        if self.remaining == 0 {
+            let error = crate::Error::IoError(std::io::Error::other("test error"));
+            crate::Filled::stopped(n, Stop::Error(error))
+        } else {
+            crate::Filled::all(n)
+        }
+    }
+
+    fn on_start_of_batch(&mut self) {}
+}
+
+#[test]
+fn errors_are_skipped() {
+    let mut list = SoundList::new();
+    list.add(Box::new(MemorySound::from_samples(
+        Arc::new(vec![1, 2]),
+        1,
+        1000,
+    )));
+    list.add(Box::new(ErrorAfter { remaining: 2 }));
+    list.add(Box::new(ErrorAfter { remaining: 0 }));
+    list.add(Box::new(MemorySound::from_samples(
+        Arc::new(vec![3]),
+        1,
+        2000,
+    )));
+    assert!(matches!(
+        list.next_samples(&mut []).stop,
+        Some(Stop::MetadataChanged)
+    ));
+    let mut buf = [0; 10];
+    let filled = list.next_samples(&mut buf);
+    assert_eq!(filled.written, 4);
+    assert!(matches!(filled.stop, Some(Stop::MetadataChanged)));
+    assert_eq!(&buf[..4], &[1, 2, 7, 7]);
+    assert_eq!(list.sample_rate(), 2000);
+    let filled = list.next_samples(&mut buf);
+    assert_eq!(filled.written, 1);
+    assert!(matches!(filled.stop, Some(Stop::Finished)));
+    assert_eq!(buf[0], 3);
+}
+
 #[test]
 fn fill_size_independent() {
     crate::tests::assert_fill_size_independent(
