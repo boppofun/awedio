@@ -55,6 +55,37 @@ fn changing_metadata_and_finishing() {
 }
 
 #[test]
+fn empty_sounds_finish() {
+    let generator = || {
+        let sound: Box<dyn Sound> = Box::new(crate::sounds::Empty::new(1, 1000));
+        Some(sound)
+    };
+    let mut from_fn = SoundsFromFn::new(Box::new(generator));
+    let mut buf = [0; 6];
+    let filled = from_fn.next_samples(&mut buf);
+    assert_eq!(filled.written, 0);
+    assert!(matches!(filled.stop, Some(Stop::Finished)));
+    let filled = from_fn.next_samples(&mut buf);
+    assert!(matches!(filled.stop, Some(Stop::Finished)));
+}
+
+#[test]
+fn some_empty_sounds_are_skipped() {
+    let mut num = 0;
+    let generator = move || {
+        num += 1;
+        let samples = if num % 4 == 0 { vec![1, 2] } else { vec![] };
+        let sound: Box<dyn Sound> = Box::new(MemorySound::from_samples(Arc::new(samples), 2, 1000));
+        Some(sound)
+    };
+    let mut from_fn = SoundsFromFn::new(Box::new(generator));
+    let mut buf = [0; 6];
+    let filled = from_fn.next_samples(&mut buf);
+    assert!(filled.stop.is_none());
+    assert_eq!(buf, [1, 2, 1, 2, 1, 2]);
+}
+
+#[test]
 fn fill_size_independent() {
     crate::tests::assert_fill_size_independent(
         || {

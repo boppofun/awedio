@@ -12,12 +12,22 @@ type SoundGenerator = Box<dyn FnMut() -> Option<Box<dyn Sound>> + Send>;
 ///
 /// This can be used to create sounds that loop forever without storing all
 /// samples in memory.
+///
+/// If more than 8 sounds in a row finish without producing any samples
+/// (e.g. looping an empty file) this sound returns Finished and `generator`
+/// will no longer be called. This avoids calling `generator` forever.
 pub struct SoundsFromFn {
     generator: SoundGenerator,
     current: Option<Box<dyn Sound>>,
     current_channel_count: u16,
     current_sample_rate: u32,
+    /// The number of sounds in a row that have finished without producing any
+    /// samples.
+    num_empty_in_a_row: u32,
 }
+
+/// The maximum value of `num_empty_in_a_row` before finishing.
+const MAX_EMPTY_IN_A_ROW: u32 = 8;
 
 impl SoundsFromFn {
     /// Call `generator` to generate Sounds that will be played to completion.
@@ -42,6 +52,7 @@ impl SoundsFromFn {
             current,
             current_channel_count: 0,
             current_sample_rate: 0,
+            num_empty_in_a_row: 0,
         };
         to_return.update_metadata();
         to_return
@@ -82,6 +93,9 @@ impl Sound for SoundsFromFn {
             };
             let filled = current.next_samples(&mut buf[written..]);
             written += filled.written;
+            if filled.written > 0 {
+                self.num_empty_in_a_row = 0;
+            }
             match filled.stop {
                 None => return Filled::all(written),
                 Some(Stop::MetadataChanged) => {
@@ -96,6 +110,17 @@ impl Sound for SoundsFromFn {
                     return Filled::stopped(written, Stop::Error(e));
                 }
                 Some(Stop::Finished) => {
+                    if filled.written == 0 {
+                        // The sound might have produced samples in an earlier
+                        // call in which case it is counted as empty when it
+                        // is not. That is fine since we only need to make
+                        // sure this does not go on forever.
+                        self.num_empty_in_a_row += 1;
+                        if self.num_empty_in_a_row > MAX_EMPTY_IN_A_ROW {
+                            self.current = None;
+                            return Filled::stopped(written, Stop::Finished);
+                        }
+                    }
                     let old_channel_count = self.current_channel_count;
                     let old_sample_rate = self.current_sample_rate;
                     self.current = None;
