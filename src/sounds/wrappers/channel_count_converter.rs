@@ -5,9 +5,8 @@ use super::Wrapper;
 /// Convert a Sound to have a specified number of output channels.
 /// For example convert a mono sound to stereo or vice versa.
 ///
-/// Converting to mono averages all input channels. Otherwise output channel
-/// `c` is input channel `c % input_channel_count` (e.g. 6 to 2 channels keeps
-/// the first two channels and mono is copied to every output channel).
+/// Only mono to stereo and stereo to mono are supported. Other conversions
+/// stop with [Stop::Error].
 pub struct ChannelCountConverter<S: Sound> {
     inner: S,
     to_count: u16,
@@ -21,10 +20,7 @@ enum ConverterType {
     PassThrough,
     MonoToStereo,
     StereoToMono,
-    /// Any other conversion. See the docs of [ChannelCountConverter].
-    Remix {
-        from_count: u16,
-    },
+    Unsupported { from_count: u16 },
 }
 
 impl<S> ChannelCountConverter<S>
@@ -51,9 +47,9 @@ where
         } else if from_count == 2 && to_count == 1 {
             ConverterType::StereoToMono
         } else {
-            // Could implement better conversions like
+            // Can implement more conversions like
             // https://developer.mozilla.org/en-US/docs/Web/API/Web_Audio_API/Basic_concepts_behind_Web_Audio_API#up-mixing_and_down-mixing
-            ConverterType::Remix { from_count }
+            ConverterType::Unsupported { from_count }
         }
     }
 
@@ -122,40 +118,16 @@ where
                     stop: filled.stop,
                 }
             }
-            ConverterType::Remix { from_count: 0 } => Filled::stopped(
+            ConverterType::Unsupported { from_count } => Filled::stopped(
                 0,
                 Stop::Error(crate::Error::FormatError(
-                    "inner sound has 0 channels".into(),
+                    format!(
+                        "ChannelCountConverter for {} to {} channels not implemented",
+                        from_count, self.to_count
+                    )
+                    .into(),
                 )),
             ),
-            ConverterType::Remix { from_count } => {
-                let from_count = from_count as usize;
-                let to_count = self.to_count as usize;
-                let input_len = buf.len() / to_count * from_count;
-                if self.input_buffer.len() < input_len {
-                    self.input_buffer.resize(input_len, 0);
-                }
-                let filled = self.inner.next_samples(&mut self.input_buffer[..input_len]);
-                let num_frames = filled.written / from_count;
-                for (out_frame, in_frame) in buf[..num_frames * to_count]
-                    .chunks_exact_mut(to_count)
-                    .zip(self.input_buffer[..filled.written].chunks_exact(from_count))
-                {
-                    if to_count == 1 {
-                        // Get the average of all channels
-                        let sum: i32 = in_frame.iter().map(|&s| s as i32).sum();
-                        out_frame[0] = (sum / from_count as i32) as i16;
-                    } else {
-                        for (c, out) in out_frame.iter_mut().enumerate() {
-                            *out = in_frame[c % from_count];
-                        }
-                    }
-                }
-                Filled {
-                    written: num_frames * to_count,
-                    stop: filled.stop,
-                }
-            }
         };
         self.handle_possible_channel_count_change(&filled);
         filled
