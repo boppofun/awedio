@@ -4,6 +4,9 @@ use super::Wrapper;
 
 /// Convert a Sound to have a specified number of output channels.
 /// For example convert a mono sound to stereo or vice versa.
+///
+/// Only mono to stereo and stereo to mono are supported. Other conversions
+/// stop with [Stop::Error].
 pub struct ChannelCountConverter<S: Sound> {
     inner: S,
     to_count: u16,
@@ -17,6 +20,7 @@ enum ConverterType {
     PassThrough,
     MonoToStereo,
     StereoToMono,
+    Unsupported { from_count: u16 },
 }
 
 impl<S> ChannelCountConverter<S>
@@ -45,11 +49,7 @@ where
         } else {
             // Can implement more conversions like
             // https://developer.mozilla.org/en-US/docs/Web/API/Web_Audio_API/Basic_concepts_behind_Web_Audio_API#up-mixing_and_down-mixing
-            todo!(
-                "ChannelCountConverter for {} to {} channels not implemented.",
-                from_count,
-                to_count
-            );
+            ConverterType::Unsupported { from_count }
         }
     }
 
@@ -118,6 +118,16 @@ where
                     stop: filled.stop,
                 }
             }
+            ConverterType::Unsupported { from_count } => Filled::stopped(
+                0,
+                Stop::Error(crate::Error::FormatError(
+                    format!(
+                        "ChannelCountConverter for {} to {} channels not implemented",
+                        from_count, self.to_count
+                    )
+                    .into(),
+                )),
+            ),
         };
         self.handle_possible_channel_count_change(&filled);
         filled

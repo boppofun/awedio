@@ -26,6 +26,17 @@ fn stereo_to_mono() {
 }
 
 #[test]
+fn unsupported_errors() {
+    for (from, to) in [(3, 2), (2, 3), (0, 2), (4, 1)] {
+        let mut sound = ChannelCountConverter::new(Sawtooth::new(from, 1000), to);
+        let mut buf = [0; 6];
+        let filled = sound.next_samples(&mut buf);
+        assert_eq!(filled.written, 0);
+        assert!(matches!(filled.stop, Some(Stop::Error(_))));
+    }
+}
+
+#[test]
 fn channel_count_change_of_inner() {
     let mut inner = crate::tests::ConstantValueSound::new(7);
     inner.set_channel_count(2);
@@ -36,6 +47,10 @@ fn channel_count_change_of_inner() {
     sound.inner_mut().inner_mut().set_channel_count(1);
     assert!(matches!(sound.next_frame(), Err(Stop::MetadataChanged)));
     assert_eq!(sound.next_frame().unwrap(), vec![7, 7]);
+    // Previously panicked with todo!()
+    sound.inner_mut().inner_mut().set_channel_count(6);
+    assert!(matches!(sound.next_frame(), Err(Stop::MetadataChanged)));
+    assert!(matches!(sound.next_frame(), Err(Stop::Error(_))));
 }
 
 #[test]
