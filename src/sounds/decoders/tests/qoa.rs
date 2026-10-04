@@ -54,3 +54,26 @@ fn matches_qoaudio() {
     assert!(matches!(filled.stop, Some(crate::Stop::Finished)));
     assert_eq!(&buf[..filled.written], &expected[..]);
 }
+
+#[test]
+fn truncated_file_is_error() {
+    let expected: Vec<i16> = qoaudio::decode_all(std::io::Cursor::new(SINE_WAVE_FILE))
+        .unwrap()
+        .samples;
+    // Cut part way through the last frame.
+    let truncated = &SINE_WAVE_FILE[..SINE_WAVE_FILE.len() - 100];
+    let mut decoder = QoaDecoder::new(std::io::Cursor::new(truncated)).unwrap();
+    let mut all = Vec::new();
+    let mut buf = [0; 64];
+    let stop = loop {
+        let filled = decoder.next_samples(&mut buf);
+        all.extend_from_slice(&buf[..filled.written]);
+        if let Some(stop) = filled.stop {
+            break stop;
+        }
+    };
+    assert!(matches!(stop, Stop::Error(_)), "{stop:?}");
+    assert!(all.len() > 3000);
+    assert!(all.len() < expected.len());
+    assert_eq!(&all[..], &expected[..all.len()]);
+}

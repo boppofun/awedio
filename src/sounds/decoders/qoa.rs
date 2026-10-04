@@ -3,6 +3,10 @@ use qoaudio::{DecodeError, QoaDecoder as RawQoaDecoder};
 use std::io::Read;
 
 /// Decoder for the [QOA](https://qoaformat.org/) format.
+///
+/// If the data ends part way through a frame (e.g. a truncated file),
+/// Stop::Error is returned. Samples decoded by the call of next_samples that
+/// reached the end might be dropped.
 pub struct QoaDecoder<R>
 where
     R: Read + Send,

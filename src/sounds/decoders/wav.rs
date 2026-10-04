@@ -7,6 +7,10 @@ use hound::{SampleFormat, WavReader};
 // Originally based off Decoder from Rodio.
 
 /// Decoder for the WAV format.
+///
+/// If the data ends before all samples of the header have been read (e.g. a
+/// truncated file), the samples read so far are returned followed by
+/// Stop::Error.
 pub struct WavDecoder<R>
 where
     R: Read + Send,
@@ -21,9 +25,18 @@ where
     R: Read + Send,
 {
     /// Attempts to decode the data as WAV.
+    ///
+    /// Returns an error if the sample format is not supported or the sample
+    /// rate is 0.
     pub fn new(data: R) -> Result<WavDecoder<R>, hound::Error> {
         let reader = WavReader::new(data)?;
         let spec = reader.spec();
+        if !is_supported(spec.sample_format, spec.bits_per_sample) {
+            return Err(hound::Error::Unsupported);
+        }
+        if spec.sample_rate == 0 {
+            return Err(hound::Error::FormatError("sample rate is 0"));
+        }
 
         let sample_rate = spec.sample_rate;
         let channel_count = spec.channels;
@@ -62,13 +75,24 @@ where
             (SampleFormat::Int, 16) => fill(self.reader.samples(), buf, ch, |s: i16| s),
             (SampleFormat::Int, 24) => fill(self.reader.samples(), buf, ch, i24_to_i16),
             (SampleFormat::Int, 32) => fill(self.reader.samples(), buf, ch, i32_to_i16),
-            (sample_format, bits_per_sample) => {
-                unimplemented!("wav spec: {:?}, {}", sample_format, bits_per_sample)
-            }
+            // Checked in new
+            _ => Filled::stopped(0, Stop::Error(hound::Error::Unsupported.into())),
         }
     }
 
     fn on_start_of_batch(&mut self) {}
+}
+
+/// Whether next_samples can convert samples of this format to i16.
+fn is_supported(sample_format: SampleFormat, bits_per_sample: u16) -> bool {
+    matches!(
+        (sample_format, bits_per_sample),
+        (SampleFormat::Float, 32)
+            | (SampleFormat::Int, 8)
+            | (SampleFormat::Int, 16)
+            | (SampleFormat::Int, 24)
+            | (SampleFormat::Int, 32)
+    )
 }
 
 /// Fill `buf` from `samples`. If `samples` stops part way through a frame, the
