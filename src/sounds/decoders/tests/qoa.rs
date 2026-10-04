@@ -56,7 +56,7 @@ fn matches_qoaudio() {
 }
 
 #[test]
-fn truncated_file_finishes() {
+fn truncated_file_is_error() {
     let expected: Vec<i16> = qoaudio::decode_all(std::io::Cursor::new(SINE_WAVE_FILE))
         .unwrap()
         .samples;
@@ -72,7 +72,7 @@ fn truncated_file_finishes() {
             break stop;
         }
     };
-    assert!(matches!(stop, Stop::Finished), "{stop:?}");
+    assert!(matches!(stop, Stop::Error(_)), "{stop:?}");
     assert!(all.len() > 3000);
     assert!(all.len() < expected.len());
     assert_eq!(&all[..], &expected[..all.len()]);
