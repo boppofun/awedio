@@ -34,3 +34,15 @@ fn samples_of_test_file() -> std::io::Result<()> {
     assert!(matches!(decoder.next_sample(), Err(Stop::Finished)));
     Ok(())
 }
+
+/// Packets past the frame count in the Xing/LAME header are trimmed to zero
+/// frames by Symphonia. Concatenating the file makes the header undercount,
+/// producing consecutive empty packets (issue #10).
+#[test]
+fn consecutive_empty_packets() {
+    let data = [SINE_WAVE_FILE, SINE_WAVE_FILE].concat();
+    let decoder = SymphoniaDecoder::new(Box::new(std::io::Cursor::new(data)), None).unwrap();
+    let sound = decoder.into_memory_sound().unwrap();
+    assert_eq!(sound.channel_count(), 1);
+    assert_eq!(sound.sample_rate(), 44100);
+}
