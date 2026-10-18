@@ -1,3 +1,5 @@
+use crate::sounds::wrappers::AddSound;
+use crate::sounds::wrappers::ClearSounds;
 use crate::sounds::wrappers::Controllable;
 use crate::sounds::wrappers::Wrapper;
 use crate::sounds::SoundMixer;
@@ -9,12 +11,61 @@ use super::backend_source::BackendSource;
 /// The default [BackendSource]. Renderer is essentially half of
 /// [Manager][crate::manager::Manager].
 pub struct Renderer {
-    mixer: Controllable<SoundMixer>,
+    mixer: Controllable<RootMixer>,
 }
 
 impl Renderer {
-    pub(crate) fn new(mixer: Controllable<SoundMixer>) -> Self {
+    pub(crate) fn new(mixer: Controllable<RootMixer>) -> Self {
         Renderer { mixer }
+    }
+}
+
+/// The mixer of all played sounds and the Manager's start of batch callback.
+pub(crate) struct RootMixer {
+    mixer: SoundMixer,
+    pub(crate) on_start_of_batch: Option<Box<dyn FnMut() + Send>>,
+}
+
+impl RootMixer {
+    pub(crate) fn new(mixer: SoundMixer) -> Self {
+        RootMixer {
+            mixer,
+            on_start_of_batch: None,
+        }
+    }
+}
+
+impl Sound for RootMixer {
+    fn channel_count(&self) -> u16 {
+        self.mixer.channel_count()
+    }
+
+    fn sample_rate(&self) -> u32 {
+        self.mixer.sample_rate()
+    }
+
+    #[inline]
+    fn next_samples(&mut self, buf: &mut [i16]) -> Filled {
+        self.mixer.next_samples(buf)
+    }
+
+    fn on_start_of_batch(&mut self) {
+        if let Some(f) = &mut self.on_start_of_batch {
+            f();
+        }
+        self.mixer.on_start_of_batch()
+    }
+}
+
+impl AddSound for RootMixer {
+    fn add(&mut self, sound: Box<dyn Sound>) {
+        self.mixer.add(sound)
+    }
+}
+
+impl ClearSounds for RootMixer {
+    fn clear(&mut self) {
+        self.mixer.clear()
     }
 }
 
@@ -26,6 +77,7 @@ impl BackendSource for Renderer {
     ) {
         self.mixer
             .inner_mut()
+            .mixer
             .set_output_channel_count_and_sample_rate(output_channel_count, output_sample_rate);
     }
 }
