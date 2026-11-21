@@ -1,0 +1,5 @@
+# Ignore crate versions published less than 7 days ago when resolving
+# dependencies, so malicious releases have time to be caught and yanked.
+# Requires Cargo 1.100+; older Cargo ignores it.
+[registry]
+global-min-publish-age = "7 days"
